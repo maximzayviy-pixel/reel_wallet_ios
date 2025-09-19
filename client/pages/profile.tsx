@@ -1,39 +1,42 @@
+"use client";
 import Layout from "../components/Layout";
+import { useEffect, useState } from "react";
 
 export default function Profile() {
+  const [info, setInfo] = useState<any>(null);
+  const [status, setStatus] = useState<string| null>(null);
+
+  useEffect(() => {
+    const tgUser = (window as any)?.Telegram?.WebApp?.initDataUnsafe?.user;
+    const payload = tgUser ? {
+      tg_id: tgUser.id,
+      username: tgUser.username,
+      first_name: tgUser.first_name,
+      last_name: tgUser.last_name
+    } : null;
+    if (payload) {
+      setInfo(payload);
+      fetch('/api/auth-upsert', { method:'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(payload) })
+        .then(r => r.ok ? setStatus('Связано с Telegram') : r.text().then(t => setStatus('Ошибка: ' + t)))
+        .catch(e => setStatus('Ошибка: ' + (e?.message || e)));
+    } else {
+      setStatus('Открой через Telegram Mini App, чтобы связать профиль.');
+    }
+  }, []);
+
   return (
-    <Layout title="Профиль">
+    <Layout title="Reel Wallet — Профиль">
       <div className="max-w-md mx-auto px-4 pt-8 space-y-4">
         <div className="bg-white rounded-2xl p-4 shadow-sm">
-          <div className="flex items-center gap-3">
-            <div className="w-14 h-14 rounded-full bg-slate-200"></div>
-            <div>
-              <div className="font-semibold">@pravy_ru</div>
-              <div className="text-xs text-slate-500">Новичок</div>
+          <div className="font-semibold">Telegram</div>
+          <div className="text-sm text-slate-600">{status}</div>
+          {info && (
+            <div className="mt-3 text-sm">
+              <div>ID: {info.tg_id}</div>
+              <div>Username: @{info.username}</div>
+              <div>Имя: {info.first_name} {info.last_name || ''}</div>
             </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3 mt-4">
-            <div className="bg-slate-50 rounded-xl p-3">
-              <div className="text-xs text-slate-500">KYC верификация</div>
-              <div className="text-sm font-medium">Пройдено</div>
-            </div>
-            <div className="bg-slate-50 rounded-xl p-3">
-              <div className="text-xs text-slate-500">@</div>
-              <div className="text-sm font-medium">wusva@vk.com</div>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-2xl p-4 shadow-sm">
-          <div className="font-semibold mb-2">ПАРАМЕТРЫ</div>
-          {[
-            {title: "Безопасность"}, {title:"Язык", right:"Русский"}, {title:"Устройства", right:"1"}
-          ].map((it, i)=>(
-            <div key={i} className="py-3 border-t border-slate-100 flex items-center justify-between">
-              <div>{it.title}</div><div className="text-slate-500 text-sm">{it.right || "›"}</div>
-            </div>
-          ))}
+          )}
         </div>
       </div>
     </Layout>

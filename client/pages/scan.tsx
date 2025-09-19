@@ -1,80 +1,94 @@
 "use client";
+import Layout from "../components/Layout";
 import { useEffect, useRef, useState } from "react";
-import { supabase } from "../lib/supabase";
+import { BrowserMultiFormatReader, IScannerControls } from "@zxing/browser";
+import { parseEMVQR } from "../lib/emv";
 
-export default function ScanPage() {
+export default function Scan() {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [streamStarted, setStreamStarted] = useState(false);
+  const controlsRef = useRef<IScannerControls | null>(null);
+  const [detected, setDetected] = useState<any|null>(null);
   const [sending, setSending] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const [amount, setAmount] = useState<string>("");
+  const [status, setStatus] = useState<string|null>(null);
 
   useEffect(() => {
-    async function start() {
+    const reader = new BrowserMultiFormatReader();
+    (async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play();
-          setStreamStarted(true);
-        }
-      } catch (e) {
-        setMessage("Нет доступа к камере");
+        const controls = await reader.decodeFromVideoDevice(undefined, videoRef.current!, (res) => {
+          if (res && !detected) {
+            const text = res.getText();
+            const info = parseEMVQR(text);
+            setDetected({ text, info });
+          }
+        });
+        controlsRef.current = controls;
+      } catch (e:any) {
+        setStatus("Нет доступа к камере: " + (e?.message || e));
       }
-    }
-    start();
-    return () => {
-      if (videoRef.current && videoRef.current.srcObject) {
-        (videoRef.current.srcObject as MediaStream).getTracks().forEach(t => t.stop());
-      }
-    }
+    })();
+    return () => { controlsRef.current?.stop(); };
   }, []);
 
-  const captureAndSend = async () => {
-    if (!videoRef.current || !canvasRef.current) return;
+  const sendToAdmin = async () => {
+    if (!detected) return;
     setSending(true);
-    const v = videoRef.current;
-    const c = canvasRef.current;
-    c.width = v.videoWidth; c.height = v.videoHeight;
-    const ctx = c.getContext("2d"); if (!ctx) return;
-    ctx.drawImage(v, 0, 0, c.width, c.height);
-    const blob: Blob | null = await new Promise(res => c.toBlob(b => res(b), "image/jpeg", 0.9));
-    if (!blob) { setSending(false); return; }
-
-    const userId = localStorage.getItem("user_id") || "anonymous";
-    const filename = `${userId}-${Date.now()}.jpg`;
-    const { error: upErr } = await supabase.storage.from("qr-shots").upload(filename, blob, { upsert: false });
-    if (upErr) { setMessage("Ошибка загрузки: " + upErr.message); setSending(false); return; }
-    const { data: pub } = supabase.storage.from("qr-shots").getPublicUrl(filename);
-    const qr_image_url = pub?.publicUrl || "";
-
-    await fetch("/api/scan-submit", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        user_id: userId, qr_payload: "", qr_image_url,
-        amount_rub: amount ? Number(amount) : null,
-        max_limit_rub: amount ? Number(amount) : 2000
-      })
-    });
-    setMessage("Заявка отправлена. Ждём оплату админом.");
-    setSending(false);
+    try {
+      const userId = (typeof window !== 'undefined' && (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString())
+        || localStorage.getItem('user_id')
+        || 'anonymous';
+      const amount_rub = detected.info?.amount || null;
+      const res = await fetch("/api/scan-submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: userId,
+          qr_payload: detected.text,
+          qr_image_url: "",
+          amount_rub,
+          max_limit_rub: amount_rub || 0
+        })
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setStatus("QR отправлен админу. Ожидайте подтверждения.");
+    } catch (e:any) {
+      setStatus("Ошибка: " + (e?.message || e));
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
-    <div className="p-4 max-w-md mx-auto">
-      <h1 className="text-xl font-semibold mb-3">Сканер СБП</h1>
-      <label className="block text-sm mb-1">Сумма / Лимит (₽):</label>
-      <input type="number" value={amount} onChange={(e)=>setAmount(e.target.value)} className="border rounded px-3 py-2 w-full mb-3" placeholder="например, 2500" />
-      <div className="rounded overflow-hidden bg-black">
-        <video ref={videoRef} playsInline className="w-full h-auto" />
+    <Layout title="Reel Wallet — Сканер">
+      <div className="relative max-w-md mx-auto">
+        <div className="relative">
+          <video ref={videoRef} className="w-full h-auto rounded-b-3xl" />
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="w-64 h-64 border-4 border-white/80 rounded-2xl" style={{boxShadow:'0 0 0 9999px rgba(0,0,0,.4) inset'}}/>
+          </div>
+          <div className="absolute top-2 left-0 right-0 text-center text-white/90 text-xs">Можем распознать только QR-код с платёжных терминалов</div>
+        </div>
+
+        {detected && (
+          <div className="px-4 mt-4">
+            <div className="bg-white rounded-2xl p-4 shadow">
+              <div className="text-sm text-slate-500">Данные QR</div>
+              <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
+                <div className="text-slate-500">Сумма</div><div className="font-semibold">{detected.info?.amount ? `${detected.info.amount} ₽` : '—'}</div>
+                <div className="text-slate-500">Валюта</div><div>{detected.info?.currency || '—'}</div>
+                <div className="text-slate-500">Мерчант</div><div>{detected.info?.merchant || '—'}</div>
+                <div className="text-slate-500">Город</div><div>{detected.info?.city || '—'}</div>
+              </div>
+              <div className="mt-3 flex gap-2 justify-end">
+                <button onClick={sendToAdmin} disabled={sending} className="bg-blue-600 text-white px-4 py-2 rounded-xl">{sending ? 'Отправка...' : 'Оплатить'}</button>
+                <button onClick={()=>setDetected(null)} className="bg-slate-200 px-4 py-2 rounded-xl">Отказаться</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {status && <div className="px-4 mt-3 text-sm text-slate-700">{status}</div>}
       </div>
-      <canvas ref={canvasRef} className="hidden" />
-      <button onClick={captureAndSend} disabled={!streamStarted || sending} className="mt-4 bg-green-600 text-white px-4 py-3 rounded-xl w-full">
-        {sending ? "Отправка..." : "Сфоткать QR и отправить"}
-      </button>
-      {message && <p className="mt-3 text-sm">{message}</p>}
-    </div>
+    </Layout>
   );
 }

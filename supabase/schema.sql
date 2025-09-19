@@ -38,3 +38,9 @@ create table if not exists payment_requests (
   created_at timestamptz default now(),
   paid_at timestamptz
 );
+
+-- ensure Telegram fields
+alter table if exists users add column if not exists first_name text;
+alter table if exists users add column if not exists last_name text;
+-- index for tg id
+create unique index if not exists users_tg_id_key on users(tg_id);
