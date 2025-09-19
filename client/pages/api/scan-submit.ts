@@ -7,8 +7,8 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_KEY! // сервисный ключ
 );
 
-const BOT_TOKEN = process.env.BOT_TOKEN;
-const ADMIN_TG_ID = process.env.ADMIN_TG_ID;
+const TG_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;   // как у тебя в Vercel
+const ADMIN_TG_ID  = process.env.TELEGRAM_ADMIN_CHAT;  // как у тебя в Vercel
 
 function parseAmountRub(body: any): number | null {
   // приоритет: amount_rub -> amount -> sum
