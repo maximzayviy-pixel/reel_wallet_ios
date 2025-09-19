@@ -12,7 +12,7 @@ export default function TopUp() {
     const tgId = (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.id;
     const res = await fetch('/api/stars-invoice-bot', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ amount_stars: stars, tg_id: tgId }) });
     let json:any = {}; try { json = await res.json(); } catch { json = {}; }
-    if (!res.ok) return alert(json.error || 'Ошибка формирования инвойса');
+    if (!res.ok) return alert((json && (json.error || json.description)) || 'Ошибка формирования инвойса');
     const link = json.invoice_url;
     if (tg?.openInvoice) tg.openInvoice(link);
     else if (tg?.openTelegramLink) tg.openTelegramLink(link);

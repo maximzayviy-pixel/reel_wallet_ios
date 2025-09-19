@@ -65,3 +65,10 @@
 3) В Vercel ENV укажите: `TELEGRAM_BOT_TOKEN`, `INVOICE_SECRET`.
 4) В приложении `/topup` создайте инвойс (эндпоинт `/api/stars-invoice-bot`), Mini App откроет оплату через `WebApp.openInvoice`.
 5) После `successful_payment` бот пришлёт апдейт на вебхук, сервер проверит подпись payload и зачислит звёзды и рублёвый эквивалент.
+
+
+### Troubleshooting Stars
+- Проверь, что в @BotFather включены **Payments → Stars** для твоего бота.
+- Проверь ENV `TELEGRAM_BOT_TOKEN` (валидный токен бота).
+- Если /api/stars-invoice-bot возвращает ошибку — в ответе теперь есть `error`/`raw`.
+- Помни: инвойс в XTR доступен только из Telegram, не из обычного браузера.

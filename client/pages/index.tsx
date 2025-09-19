@@ -5,12 +5,13 @@ import { useEffect, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 export default function Home() {
+  const [user, setUser] = useState<any>(null);
   const [stars, setStars] = useState<number>(0);
   const [ton, setTon] = useState<number>(0);
   const total = (stars/2) + (ton*300);
 
   useEffect(()=>{
-    (async()=>{
+    (async()=>{ try { const tg=(window as any).Telegram?.WebApp; const u=tg?.initDataUnsafe?.user; if(u){ setUser(u);} } catch{}
       const tgId = (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.id;
       if (!tgId) return;
       const res = await fetch('/api/my-balance', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tg_id: tgId }) });
@@ -27,8 +28,8 @@ export default function Home() {
       <div className="bg-gradient-to-b from-blue-600 to-blue-500 text-white rounded-b-3xl pb-7 pt-10">
         <div className="max-w-md mx-auto px-4">
           <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">🙂</div>
-            <div className="text-sm opacity-90">@user</div>
+            {user?.photo_url? (<img src={user.photo_url} className='w-10 h-10 rounded-full object-cover'/>):(<div className='w-10 h-10 rounded-full bg-white/20 flex items-center justify-center'>🙂</div>)}
+            <div className="text-sm opacity-90">{user?.username? `@${user.username}` : (user?.first_name || 'Гость')}</div>
             <div className="ml-auto text-xs bg-white/20 rounded-full px-2 py-1 opacity-90">Reel</div>
           </div>
           <div className="text-sm/5 opacity-90">Общий баланс</div>

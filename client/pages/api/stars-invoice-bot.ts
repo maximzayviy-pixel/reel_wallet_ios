@@ -27,7 +27,7 @@ export default async function handler(req, res) {
       })
     });
     const j = await r.json();
-    if (!j.ok) return res.status(400).json({ error: j.description || 'Bot API error' });
+    if (!j.ok) return res.status(400).json({ error: j.description || 'Bot API error', raw: j });
     return res.json({ invoice_url: j.result });
   } catch (e) {
     return res.status(500).json({ error: String(e) });
