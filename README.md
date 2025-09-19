@@ -31,3 +31,10 @@
 - Realtime-история (`/history`) — статусы обновляются онлайн.
 - Привязка к Telegram ID (`/api/auth-upsert`) — сохраняем `tg_id` и создаём пользователя.
 - Пуш-уведомления через бота — переменная `TELEGRAM_BOT_TOKEN`, отправка в `admin-confirm.ts`/`admin-reject.ts`.
+
+
+## ENTERPRISE апгрейд (2025-09-19T13:24:25.395829Z)
+- EMV-парсер поддерживает теги 62.xx (terminal_id, order_id и пр.).
+- Экран оплаты `/payment/[id]` с живым прогрессом статуса через Supabase Realtime.
+- Supabase RLS + роли (user/admin) для безопасного доступа.
+- UI-полиш: шрифт Inter, иконки lucide-react, анимации framer-motion, skeleton.

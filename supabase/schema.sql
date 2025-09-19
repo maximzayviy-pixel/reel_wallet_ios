@@ -44,3 +44,21 @@ alter table if exists users add column if not exists first_name text;
 alter table if exists users add column if not exists last_name text;
 -- index for tg id
 create unique index if not exists users_tg_id_key on users(tg_id);
+
+-- Role for admin
+alter table if exists users add column if not exists role text default 'user';
+
+-- Enable RLS
+alter table if exists users enable row level security;
+alter table if exists balances enable row level security;
+alter table if exists payment_requests enable row level security;
+
+-- Policies: users see themselves, admins see all
+drop policy if exists "users_self" on users;
+create policy "users_self" on users for select using (auth.uid()::text = tg_id::text or role='admin');
+
+drop policy if exists "balances_self" on balances;
+create policy "balances_self" on balances for select using (user_id in (select id from users where auth.uid()::text = tg_id::text) or exists(select 1 from users u where u.id=balances.user_id and u.role='admin'));
+
+drop policy if exists "pr_self" on payment_requests;
+create policy "pr_self" on payment_requests for select using (user_id in (select id from users where auth.uid()::text = tg_id::text) or exists(select 1 from users u where u.id=payment_requests.user_id and u.role='admin'));
