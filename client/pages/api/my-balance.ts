@@ -1,28 +1,30 @@
-import type { NextApiRequest, NextApiResponse } from 'next';
-import { createClient } from '@supabase/supabase-js';
+import type { NextApiRequest, NextApiResponse } from 'next'
+import { createClient } from '@supabase/supabase-js'
 
+/**
+ * GET /api/my-balance?tg_id=123
+ * Reads the balances_by_tg view and returns the user totals.
+ * Requires env: SUPABASE_URL, SUPABASE_SERVICE_KEY
+ */
 const supabase = createClient(
   process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY!  // server-only
-);
+  process.env.SUPABASE_SERVICE_KEY!
+)
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  try {
-    const tgId = req.query.tg_id as string | undefined;
-    if (!tgId) return res.status(400).json({ error: 'tg_id required' });
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method Not Allowed' })
 
-    const { data, error } = await supabase
-      .from('balances_by_tg')
-      .select('tg_id, stars, ton, total_rub')
-      .eq('tg_id', tgId)
-      .maybeSingle();
+  const tg_id = req.query.tg_id?.toString()
+  if (!tg_id) return res.status(400).json({ error: 'tg_id is required' })
 
-    if (error) return res.status(500).json({ error: error.message });
+  const { data, error } = await supabase
+    .from('balances_by_tg')
+    .select('*')
+    .eq('tg_id', tg_id)
+    .maybeSingle()
 
-    return res.status(200).json(
-      data ?? { tg_id: Number(tgId), stars: 0, ton: 0, total_rub: 0 }
-    );
-  } catch (e:any) {
-    return res.status(500).json({ error: e.message ?? 'internal' });
-  }
+  if (error) return res.status(500).json({ error: error.message })
+  if (!data) return res.status(404).json({ error: 'not found' })
+
+  return res.status(200).json(data)
 }
