@@ -66,3 +66,10 @@ create policy "pr_self" on payment_requests for select using (user_id in (select
 -- asset balances
 alter table if exists balances add column if not exists stars numeric default 0;
 alter table if exists balances add column if not exists ton numeric default 0;
+
+
+-- View for balances by tg_id
+create or replace view balances_by_tg as
+select u.tg_id, b.stars, b.ton, (coalesce(b.stars,0)/2 + coalesce(b.ton,0)*300) as total_rub
+from users u
+join balances b on b.user_id = u.id;

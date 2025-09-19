@@ -1,3 +1,4 @@
+import Skeleton from '../components/Skeleton';
 import Layout from "../components/Layout";
 import { Wallet, Send, Shuffle, QrCode } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -31,7 +32,7 @@ export default function Home() {
             <div className="ml-auto text-xs bg-white/20 rounded-full px-2 py-1 opacity-90">Reel</div>
           </div>
           <div className="text-sm/5 opacity-90">Общий баланс</div>
-          <div className="text-5xl font-bold tracking-tight">{total.toFixed(2)} ₽</div>
+          <div className="text-5xl font-bold tracking-tight">{(stars===null||ton===null)? <Skeleton className='h-10 w-32 mt-2'/> : `${total.toFixed(2)} ₽`}</div>
 
           <div className="grid grid-cols-4 gap-3 mt-6">
             {[

@@ -45,3 +45,9 @@
 - Профиль ретраит initDataUnsafe до 4с, авто-upsert.
 - Stars-инвойс через Bot API (`/api/stars-invoice-bot`).
 - Сканер делает снимок кадра и отправляет на `/api/scan-submit`, бэкенд сохраняет в Supabase Storage (`qr-shots`).
+
+
+### Fixes 7 (2025-09-19T13:58:35.664066Z)
+- Stars invoice endpoint подписывает payload HMAC-SHA256 (env INVOICE_SECRET).
+- SQL view balances_by_tg для прямого селекта.
+- Skeleton shimmer компонент и интеграция на Home/Profile/History.

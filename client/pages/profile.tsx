@@ -1,4 +1,5 @@
 "use client";
+import Skeleton from '../components/Skeleton';
 import Layout from "../components/Layout";
 import { useEffect, useState } from "react";
 
@@ -33,7 +34,7 @@ export default function Profile() {
       <div className="max-w-md mx-auto px-4 pt-8 space-y-4">
         <div className="bg-white rounded-2xl p-4 shadow-sm">
           <div className="font-semibold">Telegram</div>
-          <div className="text-sm text-slate-600">{status}</div>
+          <div className="text-sm text-slate-600">{!info? <Skeleton className='h-5 w-40'/> : status}</div>
           {info && (
             <div className="mt-3 text-sm">
               <div>ID: {info.id}</div>

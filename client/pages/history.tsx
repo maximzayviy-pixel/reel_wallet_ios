@@ -1,4 +1,5 @@
 "use client";
+import Skeleton from '../components/Skeleton';
 import Layout from "../components/Layout";
 import { useEffect, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
@@ -33,10 +34,14 @@ export default function History() {
         load();
       }).subscribe();
 
-    return () => { supabase.removeChannel(ch); };
+    if(loading) return (<Layout title='История'><div className='max-w-md mx-auto p-4 space-y-3'><Skeleton className='h-6 w-full'/><Skeleton className='h-6 w-full'/><Skeleton className='h-6 w-full'/></div></Layout>);
+
+return () => { supabase.removeChannel(ch); };
   }, []);
 
-  return (
+  if(loading) return (<Layout title='История'><div className='max-w-md mx-auto p-4 space-y-3'><Skeleton className='h-6 w-full'/><Skeleton className='h-6 w-full'/><Skeleton className='h-6 w-full'/></div></Layout>);
+
+return (
     <Layout title="Reel Wallet — История">
       <div className="max-w-md mx-auto px-4 pt-6 space-y-3">
         {rows.length === 0 && (
