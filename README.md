@@ -38,3 +38,10 @@
 - Экран оплаты `/payment/[id]` с живым прогрессом статуса через Supabase Realtime.
 - Supabase RLS + роли (user/admin) для безопасного доступа.
 - UI-полиш: шрифт Inter, иконки lucide-react, анимации framer-motion, skeleton.
+
+
+### Fixes 6 (2025-09-19T13:54:15.356959Z)
+- Подключили Telegram WebApp скрипт через `_document.tsx`.
+- Профиль ретраит initDataUnsafe до 4с, авто-upsert.
+- Stars-инвойс через Bot API (`/api/stars-invoice-bot`).
+- Сканер делает снимок кадра и отправляет на `/api/scan-submit`, бэкенд сохраняет в Supabase Storage (`qr-shots`).

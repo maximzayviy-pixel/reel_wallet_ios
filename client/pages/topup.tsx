@@ -10,7 +10,7 @@ export default function TopUp() {
     const stars = Number(starsAmount);
     if (!stars || stars <= 0) return alert("Укажи количество звёзд.");
     const tgId = (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.id;
-    const res = await fetch('/api/stars-invoice', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ amount_stars: stars, tg_id: tgId }) });
+    const res = await fetch('/api/stars-invoice-bot', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ amount_stars: stars, tg_id: tgId }) });
     const json = await res.json();
     if (!res.ok) return alert(json.error || 'Ошибка формирования инвойса');
     const link = json.invoice_url;

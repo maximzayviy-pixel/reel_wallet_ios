@@ -4,24 +4,28 @@ import { useEffect, useState } from "react";
 
 export default function Profile() {
   const [info, setInfo] = useState<any>(null);
-  const [status, setStatus] = useState<string| null>(null);
+  const [status, setStatus] = useState<string| null>('Открой через Telegram Mini App, чтобы связать профиль.');
 
   useEffect(() => {
-    const tgUser = (window as any)?.Telegram?.WebApp?.initDataUnsafe?.user;
-    const payload = tgUser ? {
-      tg_id: tgUser.id,
-      username: tgUser.username,
-      first_name: tgUser.first_name,
-      last_name: tgUser.last_name
-    } : null;
-    if (payload) {
-      setInfo(payload);
-      fetch('/api/auth-upsert', { method:'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify(payload) })
-        .then(r => r.ok ? setStatus('Связано с Telegram') : r.text().then(t => setStatus('Ошибка: ' + t)))
-        .catch(e => setStatus('Ошибка: ' + (e?.message || e)));
-    } else {
-      setStatus('Открой через Telegram Mini App, чтобы связать профиль.');
-    }
+    let tries = 0;
+    const t = setInterval(() => {
+      tries++;
+      try {
+        const tg = (window as any)?.Telegram?.WebApp;
+        const u = tg?.initDataUnsafe?.user;
+        if (u?.id) {
+          clearInterval(t);
+          setInfo(u);
+          setStatus('Связано с Telegram');
+          fetch('/api/auth-upsert', { method:'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({
+            tg_id: u.id, username: u.username, first_name: u.first_name, last_name: u.last_name
+          })}).catch(()=>{});
+        } else if (tries > 40) { // ~4s
+          clearInterval(t);
+        }
+      } catch {}
+    }, 100);
+    return () => clearInterval(t);
   }, []);
 
   return (
@@ -32,7 +36,7 @@ export default function Profile() {
           <div className="text-sm text-slate-600">{status}</div>
           {info && (
             <div className="mt-3 text-sm">
-              <div>ID: {info.tg_id}</div>
+              <div>ID: {info.id}</div>
               <div>Username: @{info.username}</div>
               <div>Имя: {info.first_name} {info.last_name || ''}</div>
             </div>

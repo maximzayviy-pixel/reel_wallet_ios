@@ -11,6 +11,19 @@ export default function Scan() {
   const [sending, setSending] = useState(false);
   const [status, setStatus] = useState<string|null>(null);
 
+  const takeSnapshot = (): string | null => {
+    const v = videoRef.current;
+    if (!v) return null;
+    const canvas = document.createElement('canvas');
+    const w = v.videoWidth, h = v.videoHeight;
+    if (!w || !h) return null;
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d')!;
+    ctx.drawImage(v, 0, 0, w, h);
+    return canvas.toDataURL('image/jpeg', 0.85);
+  };
+
+
   useEffect(() => {
     const reader = new BrowserMultiFormatReader();
     (async () => {
@@ -44,7 +57,7 @@ export default function Scan() {
         body: JSON.stringify({
           user_id: userId,
           qr_payload: detected.text,
-          qr_image_url: "",
+          qr_image_b64: takeSnapshot(),
           amount_rub,
           max_limit_rub: amount_rub || 0
         })
