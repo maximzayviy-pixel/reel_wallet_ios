@@ -1,17 +1,24 @@
+import type { NextApiRequest, NextApiResponse } from 'next';
 import { createClient } from '@supabase/supabase-js';
-import { notifyUser } from './_notify';
 
-export default async function handler(req, res){
-  if(req.method!=='POST') return res.status(405).end();
-  const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
-  const { user_id, qr_payload, imageUrl as any as string, amount_rub, max_limit_rub } = req.body;
-  const { data, error } = await supabase.from('payment_requests').insert([{
-    user_id, qr_payload, imageUrl as any as string, amount_rub, max_limit_rub
-  }]).select();
-  if(error) return res.status(400).json({ error });
-  // notify admin chat
-  if (process.env.TELEGRAM_ADMIN_CHAT) {
-    await notifyUser(String(process.env.TELEGRAM_ADMIN_CHAT), `🆕 Новая заявка\nUser: ${user_id}\nСумма: ${amount_rub ?? max_limit_rub ?? '—'}₽\nQR: ${qr_payload.slice(0,100)}...`);
+const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method !== 'POST') return res.status(405).end();
+  try {
+    const { user_id, qr_payload, imageUrl, amount_rub, max_limit_rub } = req.body ?? {};
+    const { data, error } = await supabase.from('payment_requests').insert([
+      {
+        user_id,
+        qr_payload,
+        image_url: (imageUrl as string) || null,
+        amount_rub,
+        max_limit_rub,
+      },
+    ]).select().single();
+    if (error) return res.status(400).json({ error: error.message });
+    return res.status(200).json({ ok: true, request: data });
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
   }
-  res.json({ success:true, request:data[0] });
 }
