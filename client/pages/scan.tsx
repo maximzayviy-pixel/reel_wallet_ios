@@ -66,7 +66,7 @@ export default function Scan() {
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <div className="w-64 h-64 border-4 border-white/80 rounded-2xl" style={{boxShadow:'0 0 0 9999px rgba(0,0,0,.4) inset'}}/>
           </div>
-          <div className="absolute top-2 left-0 right-0 text-center text-white/90 text-xs">Можем распознать только QR-код с платёжных терминалов</div>
+          <div className="absolute top-2 left-0 right-0 text-center text-white/90 text-xs">Наведите на QR-код СБП</div>
         </div>
 
         {detected && (

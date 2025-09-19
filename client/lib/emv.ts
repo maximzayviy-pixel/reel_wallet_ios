@@ -17,12 +17,26 @@ function isTemplate(id: string) {
   return (n >= 26 && n <= 51) || id === "62";
 }
 
+function parseNSPKUrlAmount(raw: string): number | undefined {
+  try {
+    const u = new URL(raw);
+    if (u.hostname.includes('qr.nspk.ru')) {
+      const sum = u.searchParams.get('sum');
+      const amount = u.searchParams.get('amount');
+      if (sum && /^\d+$/.test(sum)) return Number(sum)/100;
+      if (amount) return Number(amount.replace(',', '.'));
+    }
+  } catch (_) {}
+  return undefined;
+}
 export function parseEMVQR(raw: string): EmvNode {
   const cleaned = raw.replace(/\s+/g, "");
   if (!/^\d{4,}$/.test(cleaned)) {
     const info: EmvNode = { raw };
     const m = cleaned.match(/(?:amount|sum|amt|s|a)[=:]([0-9]+(?:[.,][0-9]+)?)/i);
     if (m) info.amount = Number(m[1].replace(",", "."));
+    const nspk = parseNSPKUrlAmount(raw);
+    if (nspk !== undefined) info.amount = nspk;
     return info;
   }
 
