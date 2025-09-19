@@ -23,7 +23,7 @@ export default function Home() {
   }, []);
 
   return (
-    <div className="p-6">
+    <div className="p-6 max-w-md mx-auto">
       <h1 className="text-xl font-bold">Баланс</h1>
       <p className="text-3xl">{balance} ₽</p>
       <div className="mt-6 grid grid-cols-2 gap-4">
