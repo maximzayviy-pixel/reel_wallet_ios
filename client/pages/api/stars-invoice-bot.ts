@@ -23,7 +23,9 @@ export default async function handler(req, res) {
         description: 'Пополнение баланса Reel Wallet',
         payload: `${payload}|${sig}`,
         currency: 'XTR',
-        prices: [{ label: 'Stars', amount: amt }]
+        prices: [{ label: 'Stars', amount: amt }],
+        provider_token: "",
+        business_connection_id: (req.body?.business_connection_id || undefined)
       })
     });
     const j = await r.json();
