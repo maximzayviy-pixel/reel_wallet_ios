@@ -2,7 +2,19 @@ import crypto from 'crypto';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
-  const { amount_stars = 0, tg_id } = req.body || {};
+  let { amount_stars = 0, tg_id } = req.body || {};
+
+  // Try to extract tg user id from Mini App initData header (as in your old project)
+  const initHeader = req.headers['x-telegram-init-data'] as string | undefined;
+  if (!tg_id && initHeader) {
+    try {
+      const params = new URLSearchParams(initHeader);
+      const userRaw = params.get('user');
+      const u = userRaw ? JSON.parse(userRaw) : null;
+      if (u?.id) tg_id = String(u.id);
+    } catch {}
+  }
+
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const secret = process.env.INVOICE_SECRET || 'changeme';
   if (!token) return res.status(400).json({ error: 'No TELEGRAM_BOT_TOKEN' });

@@ -11,7 +11,7 @@ export default function TopUp() {
     if (!stars || stars <= 0) return alert("Укажи количество звёзд.");
     const tgId = (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.id;
     const bcId = tg?.initDataUnsafe?.business_connection_id || tg?.initDataUnsafe?.business?.id;
-    const res = await fetch('/api/stars-invoice-bot', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ amount_stars: stars, tg_id: tgId, business_connection_id: bcId }) });
+    const res = await fetch('/api/stars-invoice-bot', { method:'POST', headers:{'Content-Type':'application/json', 'x-telegram-init-data': (tg?.initData || '')}, body: JSON.stringify({ amount_stars: stars, tg_id: tgId, business_connection_id: bcId }) });
     let json:any = {}; try { json = await res.json(); } catch { json = {}; }
     if (!res.ok) return alert((json && (json.error || json.description)) || 'Ошибка формирования инвойса');
     const link = json.invoice_url;
