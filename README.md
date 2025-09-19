@@ -72,3 +72,8 @@
 - Проверь ENV `TELEGRAM_BOT_TOKEN` (валидный токен бота).
 - Если /api/stars-invoice-bot возвращает ошибку — в ответе теперь есть `error`/`raw`.
 - Помни: инвойс в XTR доступен только из Telegram, не из обычного браузера.
+
+
+### Fixes 13
+- Перенёс обработчик вебхука в `client/pages/api/webhooks/telegram.ts` чтобы совпадал с URL, прописанным в Bot API.
+- Старый файл `client/pages/api/telegram-webhook.ts` оставлен с комментарием-редиректом (на случай прямых обращений).

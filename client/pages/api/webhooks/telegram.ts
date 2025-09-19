@@ -1,4 +1,3 @@
-// moved to /api/webhooks/telegram
 import crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 
