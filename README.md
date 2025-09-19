@@ -51,3 +51,9 @@
 - Stars invoice endpoint подписывает payload HMAC-SHA256 (env INVOICE_SECRET).
 - SQL view balances_by_tg для прямого селекта.
 - Skeleton shimmer компонент и интеграция на Home/Profile/History.
+
+
+### Fixes 8
+- Все API перенесены в `client/pages/api/*` (Next.js) — больше не будет 404 на Vercel.
+- На клиенте добавлена защита от `res.json()` при 404, чтобы не падал `JSON.parse`.
+- В `_app.tsx` — повторные попытки получить Telegram `initDataUnsafe.user`.
