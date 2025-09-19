@@ -1,0 +1,1 @@
+import Layout from '../components/Layout'; export default function Browser(){return (<Layout title='Браузер'><div className='max-w-md mx-auto px-4 pt-10 text-slate-500'>Здесь будет браузер dApp/TON позже.</div></Layout>);}
