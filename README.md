@@ -77,3 +77,8 @@
 ### Fixes 13
 - Перенёс обработчик вебхука в `client/pages/api/webhooks/telegram.ts` чтобы совпадал с URL, прописанным в Bot API.
 - Старый файл `client/pages/api/telegram-webhook.ts` оставлен с комментарием-редиректом (на случай прямых обращений).
+
+
+### Fixes 15 (2025-09-19T14:36:07.087400Z)
+- Добавлен API `GET/POST /api/my-balance` — читает `tg_id` из заголовка `x-telegram-init-data` и берёт баланс из view `balances_by_tg` (через SERVICE_KEY), без RLS-проблем.
+- Главная (`index.tsx`) теперь запрашивает баланс с сервера и показывает реальные `stars`, `ton` и общий рублёвый эквивалент.
