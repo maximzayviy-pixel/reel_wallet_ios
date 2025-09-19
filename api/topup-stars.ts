@@ -7,5 +7,6 @@ export default async function handler(req, res){
   const rub = Number(stars) / 2;
   await supabase.from('ledger').insert({ user_id, type:'topup_stars', amount_rub: rub, asset_amount: stars, rate_used: 0.5, status:'done', metadata:{ source:'telegram_iap' } });
   await supabase.rpc('credit_user_balance', { p_user_id: user_id, p_amount: rub });
+  await supabase.from('balances').update({ stars: (await supabase.from('balances').select('stars').eq('user_id', user_id).single()).data.stars + Number(stars) }).eq('user_id', user_id);
   res.json({ success:true, rub });
 }

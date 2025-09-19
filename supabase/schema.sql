@@ -62,3 +62,7 @@ create policy "balances_self" on balances for select using (user_id in (select i
 
 drop policy if exists "pr_self" on payment_requests;
 create policy "pr_self" on payment_requests for select using (user_id in (select id from users where auth.uid()::text = tg_id::text) or exists(select 1 from users u where u.id=payment_requests.user_id and u.role='admin'));
+
+-- asset balances
+alter table if exists balances add column if not exists stars numeric default 0;
+alter table if exists balances add column if not exists ton numeric default 0;

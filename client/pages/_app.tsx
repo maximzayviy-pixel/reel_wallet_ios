@@ -10,7 +10,20 @@ export default function MyApp({ Component, pageProps }: AppProps) {
         tg.ready();
         if (tg.expand) tg.expand();
         const user = tg.initDataUnsafe?.user;
-        if (user?.id) localStorage.setItem('user_id', String(user.id));
+        if (user?.id) {
+          localStorage.setItem('user_id', String(user.id));
+          // Отправим на бэкенд для привязки профиля и создания баланса
+          fetch('/api/auth-upsert', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({
+              tg_id: user.id,
+              username: user.username,
+              first_name: user.first_name,
+              last_name: user.last_name
+            })
+          }).catch(()=>{});
+        }
       }
     } catch {}
   }, []);
