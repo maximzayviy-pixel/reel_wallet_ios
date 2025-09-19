@@ -3,8 +3,6 @@ import { Wallet, Send, Shuffle, QrCode } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 
-const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
-
 export default function Home() {
   const [stars, setStars] = useState<number>(0);
   const [ton, setTon] = useState<number>(0);
@@ -12,15 +10,13 @@ export default function Home() {
 
   useEffect(()=>{
     (async()=>{
-      const userId = (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString() || localStorage.getItem('user_id');
-      if(!userId) return;
-      // fetch user's balance row (by joining via tg_id -> users.id not trivial client-side; assume user_id == tg_id for demo or auth-upsert sets localStorage user_id to UUID)
-      // For stability, call a lightweight view: balances_by_tg is not set; fallback to 'balances' by matching user UUID stored in localStorage (set by auth-upsert response if needed)
-      const { data } = await supabase.from('balances').select('*').limit(1);
-      const row = (data && data[0]) || null;
-      if(row){
-        setStars(Number(row.stars||0));
-        setTon(Number(row.ton||0));
+      const tgId = (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.id;
+      if (!tgId) return;
+      const res = await fetch('/api/my-balance', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ tg_id: tgId }) });
+      if (res.ok) {
+        const json = await res.json();
+        setStars(Number(json.stars||0));
+        setTon(Number(json.ton||0));
       }
     })();
   },[]);

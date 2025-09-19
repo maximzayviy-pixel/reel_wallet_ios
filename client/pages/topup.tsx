@@ -2,29 +2,30 @@ import Layout from "../components/Layout";
 import { useEffect, useState } from "react";
 
 export default function TopUp() {
-  const [stars, setStars] = useState<string>("");
-  const [ton, setTon] = useState<string>("");
+  const [starsAmount, setStarsAmount] = useState<string>("");
+  const [tonAmount, setTonAmount] = useState<string>("");
   const tg: any = typeof window !== 'undefined' ? (window as any).Telegram?.WebApp : null;
 
-  const openStarsPayment = () => {
-    // Ожидаем, что ты задашь ссылку-инвойс через ENV или создашь его на бэке.
-    const invoiceUrl = process.env.NEXT_PUBLIC_STARS_INVOICE_URL || "";
-    if (tg && tg.openTelegramLink && invoiceUrl) {
-      tg.openTelegramLink(invoiceUrl);
-    } else {
-      alert("Добавь NEXT_PUBLIC_STARS_INVOICE_URL в переменные окружения (invoice/attach-pay ссылку для звёзд).");
-    }
+  const openStarsPayment = async () => {
+    const stars = Number(starsAmount);
+    if (!stars || stars <= 0) return alert("Укажи количество звёзд.");
+    const tgId = (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.id;
+    const res = await fetch('/api/stars-invoice', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ amount_stars: stars, tg_id: tgId }) });
+    const json = await res.json();
+    if (!res.ok) return alert(json.error || 'Ошибка формирования инвойса');
+    const link = json.invoice_url;
+    if (tg?.openTelegramLink) tg.openTelegramLink(link);
+    else window.open(link, "_blank");
   };
 
   const openCryptoCloud = () => {
-    const ccUrl = process.env.NEXT_PUBLIC_CRYPTOCLOUD_URL || "";
-    if (tg && tg.openLink && ccUrl) {
-      tg.openLink(ccUrl, { try_instant_view: true });
-    } else if (ccUrl) {
-      window.open(ccUrl, "_blank");
-    } else {
-      alert("Добавь NEXT_PUBLIC_CRYPTOCLOUD_URL в переменные окружения (ссылка на форму оплаты TON).");
-    }
+    const ton = Number(tonAmount);
+    if (!ton || ton <= 0) return alert("Укажи количество TON.");
+    const base = process.env.NEXT_PUBLIC_CRYPTOCLOUD_URL || "";
+    if (!base) return alert("Добавь NEXT_PUBLIC_CRYPTOCLOUD_URL в .env");
+    const url = base.includes('?') ? `${base}&amount=${ton}` : `${base}?amount=${ton}`;
+    if (tg?.openLink) tg.openLink(url, { try_instant_view: true });
+    else window.open(url, "_blank");
   };
 
   return (
@@ -33,16 +34,19 @@ export default function TopUp() {
         <div className="bg-white rounded-2xl p-5 shadow-sm">
           <div className="font-semibold mb-2">Пополнить звёздами Telegram</div>
           <div className="text-xs text-slate-500 mb-3">Курс: 2 ⭐ = 1 ₽</div>
-          <button onClick={openStarsPayment} className="w-full bg-blue-600 text-white rounded-2xl py-3">Открыть оплату звёздами</button>
-          <div className="text-xs text-slate-400 mt-2">
-            Оплата делается через встроенную систему Telegram Stars. Для продакшена укажи invoice ссылку (см. документацию).
+          <div className="flex gap-2">
+            <input type="number" value={starsAmount} onChange={(e)=>setStarsAmount(e.target.value)} placeholder="Сколько ⭐" className="border rounded-xl flex-1 px-3 py-2" />
+            <button onClick={openStarsPayment} className="bg-blue-600 text-white rounded-xl px-4 py-2">Оплатить ⭐</button>
           </div>
         </div>
 
         <div className="bg-white rounded-2xl p-5 shadow-sm">
           <div className="font-semibold mb-2">Пополнить TON через CryptoCloud</div>
           <div className="text-xs text-slate-500 mb-3">Курс: 1 TON = 300 ₽</div>
-          <button onClick={openCryptoCloud} className="w-full bg-slate-900 text-white rounded-2xl py-3">Открыть форму CryptoCloud</button>
+          <div className="flex gap-2">
+            <input type="number" value={tonAmount} onChange={(e)=>setTonAmount(e.target.value)} placeholder="Сколько TON" className="border rounded-xl flex-1 px-3 py-2" />
+            <button onClick={openCryptoCloud} className="bg-slate-900 text-white rounded-xl px-4 py-2">Оплатить TON</button>
+          </div>
         </div>
       </div>
     </Layout>
