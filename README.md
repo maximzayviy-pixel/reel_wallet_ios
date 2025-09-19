@@ -57,3 +57,11 @@
 - Все API перенесены в `client/pages/api/*` (Next.js) — больше не будет 404 на Vercel.
 - На клиенте добавлена защита от `res.json()` при 404, чтобы не падал `JSON.parse`.
 - В `_app.tsx` — повторные попытки получить Telegram `initDataUnsafe.user`.
+
+
+### Stars Payments Setup (2025-09-19T14:04:31.278611Z)
+1) В @BotFather включите **Payments → Stars** для вашего бота.
+2) Установите вебхук бота на: `https://<your-domain>/api/telegram-webhook`.
+3) В Vercel ENV укажите: `TELEGRAM_BOT_TOKEN`, `INVOICE_SECRET`.
+4) В приложении `/topup` создайте инвойс (эндпоинт `/api/stars-invoice-bot`), Mini App откроет оплату через `WebApp.openInvoice`.
+5) После `successful_payment` бот пришлёт апдейт на вебхук, сервер проверит подпись payload и зачислит звёзды и рублёвый эквивалент.

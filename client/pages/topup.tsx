@@ -14,7 +14,8 @@ export default function TopUp() {
     let json:any = {}; try { json = await res.json(); } catch { json = {}; }
     if (!res.ok) return alert(json.error || 'Ошибка формирования инвойса');
     const link = json.invoice_url;
-    if (tg?.openTelegramLink) tg.openTelegramLink(link);
+    if (tg?.openInvoice) tg.openInvoice(link);
+    else if (tg?.openTelegramLink) tg.openTelegramLink(link);
     else window.open(link, "_blank");
   };
 
