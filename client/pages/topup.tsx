@@ -13,6 +13,19 @@ export default function TopUp() {
     const bcId = tg?.initDataUnsafe?.business_connection_id || tg?.initDataUnsafe?.business?.id;
     const res = await fetch('/api/stars-invoice-bot', { method:'POST', headers:{'Content-Type':'application/json', 'x-telegram-init-data': (tg?.initData || '')}, body: JSON.stringify({ amount_stars: stars, tg_id: tgId, business_connection_id: bcId }) });
     let json:any = {}; try { json = await res.json(); } catch { json = {}; }
+
+      if (json.ok) {
+        // Try open invoice inside Mini App; if not, покажем уведомление
+        if (tg?.openInvoice) tg.openInvoice(json.link);
+        // Покажи анимацию отправки в личку
+        const el = document.createElement('div');
+        el.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/40';
+        el.innerHTML = '<div class="bg-white rounded-2xl p-6 text-center shadow-xl animate-pulse"><div class="text-3xl mb-2">📩</div><div class="font-semibold mb-1">Ссылка отправлена в личку</div><div class="text-sm text-slate-500">Открой диалог с ботом и оплати</div></div>';
+        document.body.appendChild(el);
+        setTimeout(()=>{ el.remove(); }, 1800);
+        return;
+      }
+
     if (!res.ok) return alert((json && (json.error || json.description)) || 'Ошибка формирования инвойса');
     const link = json.invoice_url;
     if (tg?.openInvoice) tg.openInvoice(link);

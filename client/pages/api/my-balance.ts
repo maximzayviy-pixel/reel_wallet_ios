@@ -13,7 +13,7 @@ function getTgId(req: NextApiRequest): string | null {
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const tgId = getTgId(req) || (req.query.tg_id as string) || null;
-  if (!tgId) return res.status(400).json({ error: 'no tg_id' });
+  if (!tgId) return res.status(400).json({ error: 'no tg_id', hint: 'pass x-telegram-init-data header from Mini App or ?tg_id=' });
 
   const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
 
