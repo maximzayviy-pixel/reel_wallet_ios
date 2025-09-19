@@ -1,49 +1,38 @@
-import crypto from 'crypto';
+import type { NextApiRequest, NextApiResponse } from 'next';
 
-export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).end();
-  let { amount_stars = 0, tg_id } = req.body || {};
+const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
+const BOT_USERNAME = process.env.BOT_USERNAME || 'reelwallet_bot';
 
-  // Try to extract tg user id from Mini App initData header (as in your old project)
-  const initHeader = req.headers['x-telegram-init-data'] as string | undefined;
-  if (!tg_id && initHeader) {
-    try {
-      const params = new URLSearchParams(initHeader);
-      const userRaw = params.get('user');
-      const u = userRaw ? JSON.parse(userRaw) : null;
-      if (u?.id) tg_id = String(u.id);
-    } catch {}
+async function sendMessage(chatId: number, text: string, button?: { text: string; url: string }) {
+  const body: any = { chat_id: chatId, text, parse_mode: 'HTML' };
+  if (button) {
+    body.reply_markup = { inline_keyboard: [[{ text: button.text, url: button.url }]] };
   }
+  const resp = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return resp.json();
+}
 
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const secret = process.env.INVOICE_SECRET || 'changeme';
-  if (!token) return res.status(400).json({ error: 'No TELEGRAM_BOT_TOKEN' });
-  const amt = Math.round(Number(amount_stars)||0);
-  if (amt < 1 || amt > 1000000) return res.status(400).json({ error: 'Invalid stars amount' });
-  if (!tg_id) return res.status(400).json({ error: 'tg_id required' });
-
-  const payload = JSON.stringify({ tg_id, amt, ts: Date.now() });
-  const sig = crypto.createHmac('sha256', secret).update(payload).digest('hex');
-
-  const url = `https://api.telegram.org/bot${token}/createInvoiceLink`;
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
-    const r = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title: 'Reel Wallet Stars',
-        description: 'Пополнение баланса Reel Wallet',
-        payload: `${payload}|${sig}`,
-        currency: 'XTR',
-        prices: [{ label: 'Stars', amount: amt }],
-        provider_token: "",
-        business_connection_id: (req.body?.business_connection_id || undefined)
-      })
+    const method = req.method || 'GET';
+    const amountStars = Number((method === 'GET' ? (req.query.amount_stars as any) : (req.body?.amount_stars)) ?? 0);
+    const tgId = Number((method === 'GET' ? (req.query.tg_id as any) : (req.body?.tg_id)));
+    if (!tgId || !amountStars) return res.status(400).json({ ok: false, error: 'tg_id and amount_stars required' });
+
+    const payload = encodeURIComponent(JSON.stringify({ tg_id: tgId, amount_stars: amountStars, ts: Date.now() }));
+    const link = `https://t.me/${BOT_USERNAME}?startapp=pay_${payload}`;
+
+    const sent = await sendMessage(tgId, `Оплатите <b>${amountStars}</b> ⭐ через Telegram Stars`, {
+      text: 'Оплатить ⭐',
+      url: link,
     });
-    const j = await r.json();
-    if (!j.ok) return res.status(400).json({ error: j.description || 'Bot API error', raw: j });
-    return res.json({ invoice_url: j.result });
-  } catch (e) {
-    return res.status(500).json({ error: String(e) });
+
+    return res.status(200).json({ ok: true, link, sent });
+  } catch (e: any) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
   }
 }
