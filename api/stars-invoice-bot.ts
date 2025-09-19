@@ -1,35 +1,64 @@
-import crypto from 'crypto';
+// api/stars-invoice-bot.ts
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).end();
-  const { amount_stars = 0, tg_id } = req.body || {};
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  const secret = process.env.INVOICE_SECRET || 'changeme';
-  if (!token) return res.status(400).json({ error: 'No TELEGRAM_BOT_TOKEN' });
-  const amt = Math.round(Number(amount_stars)||0);
-  if (amt < 1 || amt > 1000000) return res.status(400).json({ error: 'Invalid stars amount' });
-  if (!tg_id) return res.status(400).json({ error: 'tg_id required' });
+function getTgId(req: VercelRequest) {
+  let tg_id = (req.method === 'GET' ? req.query.tg_id : req.body?.tg_id) as string | undefined;
+  if (!tg_id) {
+    const h = (req.headers['x-telegram-init-data'] as string) || '';
+    try {
+      const p = new URLSearchParams(h);
+      const userRaw = p.get('user');
+      const u = userRaw ? JSON.parse(userRaw) : null;
+      tg_id = u?.id ? String(u.id) : undefined;
+    } catch {}
+  }
+  return tg_id;
+}
 
-  const payload = JSON.stringify({ tg_id, amt, ts: Date.now() });
-  const sig = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  if (req.method !== 'POST' && req.method !== 'GET') return res.status(405).end();
 
-  const url = `https://api.telegram.org/bot${token}/createInvoiceLink`;
+  const tg_id = getTgId(req);
+  const amount_stars = Number((req.method === 'GET' ? req.query.amount_stars : req.body?.amount_stars) || 0);
+  const business_connection_id =
+    (req.method === 'GET' ? req.query.business_connection_id : req.body?.business_connection_id) as string | undefined;
+
+  if (!tg_id || !amount_stars) return res.status(400).json({ error: 'tg_id or amount_stars missing' });
+
+  const payload: any = {
+    title: 'Reel Wallet пополнение',
+    description: 'Оплата звёздами',
+    currency: 'XTR',
+    prices: [{ label: 'Stars', amount: amount_stars }],
+    payload: JSON.stringify({ tg_id, ts: Date.now() }),
+    provider_token: '', // для Stars всегда пусто
+  };
+  if (business_connection_id) payload.business_connection_id = business_connection_id;
+
+  const botToken = process.env.TELEGRAM_BOT_TOKEN!;
+  const r = await fetch(`https://api.telegram.org/bot${botToken}/createInvoiceLink`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const j: any = await r.json();
+
+  if (!j.ok) return res.status(400).json({ error: j.description || 'Bot API error', raw: j });
+
+  const link = j.result as string;
+
+  // параллельно шлём кнопку в ЛС пользователю
   try {
-    const r = await fetch(url, {
+    await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        title: 'Reel Wallet Stars',
-        description: 'Пополнение баланса Reel Wallet',
-        payload: `${payload}|${sig}`,
-        currency: 'XTR',
-        prices: [{ label: 'Stars', amount: amt }]
-      })
+        chat_id: tg_id,
+        text: 'Оплата звёздами — нажми кнопку ниже',
+        reply_markup: { inline_keyboard: [[{ text: 'Оплатить ⭐', url: link }]] },
+      }),
     });
-    const j = await r.json();
-    if (!j.ok) return res.status(400).json({ error: j.description || 'Bot API error' });
-    return res.json({ invoice_url: j.result });
-  } catch (e) {
-    return res.status(500).json({ error: String(e) });
-  }
+  } catch {}
+
+  return res.json({ ok: true, link, sent: true });
 }
