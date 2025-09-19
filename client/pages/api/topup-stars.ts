@@ -1,82 +1,83 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 
 const BOT_TOKEN = process.env.TG_BOT_TOKEN!
-const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID! // опционально: куда слать алерты
-
+const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID || ''
 const TG_API = (m: string) => `https://api.telegram.org/bot${BOT_TOKEN}/${m}`
 
-const STARS_PER_RUB = 2  // 2⭐ = 1₽ (как в UI)
 const MIN_STARS = 2
 const MAX_STARS = 1_000_000
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     if (req.method !== 'POST') return res.status(405).end()
-    const { tg_id, amount_stars } = req.body ?? {}
 
-    const uid = Number(tg_id)
-    const stars = Number(amount_stars)
+    const tg_id = Number(req.body?.tg_id)
+    const amount_stars = Number(req.body?.amount_stars)
 
-    if (!uid || Number.isNaN(uid)) {
+    if (!tg_id || Number.isNaN(tg_id)) {
       return res.status(400).json({ ok: false, error: 'BAD_TG_ID' })
     }
-    if (!stars || Number.isNaN(stars) || stars < MIN_STARS || stars > MAX_STARS) {
+    if (!amount_stars || Number.isNaN(amount_stars) || amount_stars < MIN_STARS || amount_stars > MAX_STARS) {
       return res.status(400).json({ ok: false, error: 'BAD_AMOUNT' })
     }
 
-    // 1) создаём invoice link в боте
-    // ПРЕДПОЧТИТЕЛЬНО: createStarsInvoiceLink (когда доступно)
-    // Падение на этом шаге чаще всего из-за не включенных платежей в @BotFather.
-    const payload = new URLSearchParams({
-      title: 'Пополнение баланса Reel Wallet',
+    // 1) Пытаемся получить ЗВЁЗДНЫЙ инвойс (createStarsInvoiceLink)
+    const form = new URLSearchParams({
+      title: 'Пополнение Reel Wallet',
       description: 'Оплата Звёздами Telegram',
-      // Для старого метода:
-      currency: 'XTR',        // звёзды
-      prices: JSON.stringify([{ label: 'Reel Wallet', amount: stars }]),
-      payload: JSON.stringify({ kind: 'topup_stars', tg_id: uid }),
-      // Для createStarsInvoiceLink можно использовать amount: stars (если метод доступен)
+      payload: JSON.stringify({ kind: 'topup_stars', tg_id }),
+      amount: String(amount_stars), // для createStarsInvoiceLink
+      currency: 'XTR',              // для обратной совместимости ниже
+      prices: JSON.stringify([{ label: 'Reel Wallet', amount: amount_stars }]),
     })
 
-    // Пробуем createStarsInvoiceLink, если вернёт 404 — откатимся на createInvoiceLink:
     let link = ''
-    let r = await fetch(TG_API('createStarsInvoiceLink'), { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: payload })
-    let j = await r.json()
-    if (j?.ok && j?.result) {
-      link = j.result  // уже вида https://t.me/$slug
+    let resp = await fetch(TG_API('createStarsInvoiceLink'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: form
+    })
+    let json: any = await resp.json()
+
+    if (json?.ok && typeof json?.result === 'string' && json.result.startsWith('https://t.me/$')) {
+      link = json.result
     } else {
-      // fallback на классический метод
-      r = await fetch(TG_API('createInvoiceLink'), { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: payload })
-      j = await r.json()
-      if (j?.ok && j?.result) link = j.result
+      // 2) Фолбэк на createInvoiceLink (тоже вернёт https://t.me/$slug)
+      resp = await fetch(TG_API('createInvoiceLink'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: form
+      })
+      json = await resp.json()
+      if (json?.ok && typeof json?.result === 'string' && json.result.startsWith('https://t.me/$')) {
+        link = json.result
+      }
     }
 
-    if (!link || !link.includes('https://t.me/$')) {
-      console.error('invoice link failed', j)
+    if (!link) {
+      console.error('Invoice failed', json)
       return res.status(500).json({ ok: false, error: 'INVOICE_FAILED' })
     }
 
-    // 2) отправим пользователю в личку красивую кнопку
-    const kb = {
-      inline_keyboard: [[{ text: `Оплатить ${stars}⭐ в Telegram`, url: link }]]
-    }
+    // 3) Сообщение пользователю в ЛС с кнопкой
     await fetch(TG_API('sendMessage'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        chat_id: uid,
-        text: `Счёт на пополнение: ${stars} ⭐\n\nНажми кнопку ниже, оплата откроется прямо в Telegram.`,
-        reply_markup: kb
+        chat_id: tg_id,
+        text: `Счёт на пополнение: ${amount_stars} ⭐`,
+        reply_markup: { inline_keyboard: [[{ text: `Оплатить ${amount_stars}⭐`, url: link }]] }
       })
     }).catch(() => {})
 
-    // 3) оповестим админа (не обязательно)
+    // 4) Оповещение админа (необязательно)
     if (ADMIN_CHAT_ID) {
       await fetch(TG_API('sendMessage'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           chat_id: ADMIN_CHAT_ID,
-          text: `🧾 Stars invoice: ${stars}⭐ для tg_id=${uid}\n${link}`
+          text: `🧾 Stars invoice ${amount_stars}⭐ для tg_id=${tg_id}\n${link}`
         })
       }).catch(() => {})
     }
