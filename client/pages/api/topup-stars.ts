@@ -1,90 +1,60 @@
-import type { NextApiRequest, NextApiResponse } from 'next'
+// pages/api/topup-stars.ts
+import type { NextApiRequest, NextApiResponse } from "next";
 
-const BOT_TOKEN = process.env.TG_BOT_TOKEN!
-const ADMIN_CHAT_ID = process.env.ADMIN_CHAT_ID || ''
-const TG_API = (m: string) => `https://api.telegram.org/bot${BOT_TOKEN}/${m}`
-
-const MIN_STARS = 2
-const MAX_STARS = 1_000_000
+const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
+const ADMIN_CHAT = process.env.TELEGRAM_ADMIN_CHAT; // опционально
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
-    if (req.method !== 'POST') return res.status(405).end()
+    if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-    const tg_id = Number(req.body?.tg_id)
-    const amount_stars = Number(req.body?.amount_stars)
-
-    if (!tg_id || Number.isNaN(tg_id)) {
-      return res.status(400).json({ ok: false, error: 'BAD_TG_ID' })
+    const { tg_id, amount_stars, description } = req.body || {};
+    const stars = Number(amount_stars);
+    if (!tg_id || !stars || stars <= 0) {
+      return res.status(400).json({ error: "tg_id and amount_stars are required" });
     }
-    if (!amount_stars || Number.isNaN(amount_stars) || amount_stars < MIN_STARS || amount_stars > MAX_STARS) {
-      return res.status(400).json({ ok: false, error: 'BAD_AMOUNT' })
-    }
+    if (!BOT_TOKEN) return res.status(500).json({ error: "Server misconfigured: TELEGRAM_BOT_TOKEN" });
 
-    // 1) Пытаемся получить ЗВЁЗДНЫЙ инвойс (createStarsInvoiceLink)
-    const form = new URLSearchParams({
-      title: 'Пополнение Reel Wallet',
-      description: 'Оплата Звёздами Telegram',
-      payload: JSON.stringify({ kind: 'topup_stars', tg_id }),
-      amount: String(amount_stars), // для createStarsInvoiceLink
-      currency: 'XTR',              // для обратной совместимости ниже
-      prices: JSON.stringify([{ label: 'Reel Wallet', amount: amount_stars }]),
-    })
+    // Обычный invoice с валютой XTR (Stars)
+    // payload может быть любым строковым идентификатором
+    const payload = `topup:${tg_id}:${Date.now()}:${stars}`;
 
-    let link = ''
-    let resp = await fetch(TG_API('createStarsInvoiceLink'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: form
-    })
-    let json: any = await resp.json()
-
-    if (json?.ok && typeof json?.result === 'string' && json.result.startsWith('https://t.me/$')) {
-      link = json.result
-    } else {
-      // 2) Фолбэк на createInvoiceLink (тоже вернёт https://t.me/$slug)
-      resp = await fetch(TG_API('createInvoiceLink'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: form
-      })
-      json = await resp.json()
-      if (json?.ok && typeof json?.result === 'string' && json.result.startsWith('https://t.me/$')) {
-        link = json.result
-      }
-    }
-
-    if (!link) {
-      console.error('Invoice failed', json)
-      return res.status(500).json({ ok: false, error: 'INVOICE_FAILED' })
-    }
-
-    // 3) Сообщение пользователю в ЛС с кнопкой
-    await fetch(TG_API('sendMessage'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    const invResp = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/createInvoiceLink`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        chat_id: tg_id,
-        text: `Счёт на пополнение: ${amount_stars} ⭐`,
-        reply_markup: { inline_keyboard: [[{ text: `Оплатить ${amount_stars}⭐`, url: link }]] }
+        title: "Пополнение баланса",
+        description: description || "Оплата звёздами Telegram",
+        payload,
+        provider_token: "",         // ДЛЯ ЗВЁЗД НЕ НУЖЕН, оставить пустым
+        currency: "XTR",            // ВАЖНО: звёзды
+        prices: [{ label: "Stars", amount: stars }], // amount = количество звёзд
       })
-    }).catch(() => {})
+    });
 
-    // 4) Оповещение админа (необязательно)
-    if (ADMIN_CHAT_ID) {
-      await fetch(TG_API('sendMessage'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: ADMIN_CHAT_ID,
-          text: `🧾 Stars invoice ${amount_stars}⭐ для tg_id=${tg_id}\n${link}`
-        })
-      }).catch(() => {})
+    const invJson = await invResp.json().catch(() => ({} as any));
+
+    if (!invJson?.ok || !invJson?.result) {
+      // Пробросим что ответил Telegram — это поможет в логах
+      return res.status(500).json({ error: "INVOICE_FAILED", details: invJson });
     }
 
-    return res.status(200).json({ ok: true, invoice_link: link })
-  } catch (e) {
-    console.error('topup-stars fatal', e)
-    return res.status(500).json({ ok: false, error: 'FATAL' })
+    const link: string = invJson.result; // формата https://t.me/$...
+
+    // (Опционально) Уведомим админа
+    if (ADMIN_CHAT) {
+      fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: ADMIN_CHAT,
+          text: `Новая заявка на пополнение ⭐\nTG: ${tg_id}\nСумма: ${stars}⭐\nСсылка: ${link}`
+        })
+      }).catch(()=>{});
+    }
+
+    return res.status(200).json({ ok: true, link });
+  } catch (e:any) {
+    return res.status(500).json({ error: e?.message || "Server error" });
   }
 }
