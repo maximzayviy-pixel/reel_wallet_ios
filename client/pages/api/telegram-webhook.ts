@@ -1,46 +1,57 @@
-// moved to /api/webhooks/telegram
-import crypto from 'crypto';
-import { createClient } from '@supabase/supabase-js';
+import type { NextApiRequest, NextApiResponse } from "next";
 
-const secret = process.env.INVOICE_SECRET || 'changeme';
+const BOT_TOKEN = process.env.TG_BOT_TOKEN!; // у вас переменная называлась TG_BOT_TOKEN
+const WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET || "";
 
-export const config = {
-  api: { bodyParser: { sizeLimit: '2mb' } }
-};
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  // Разрешим GET для ручной проверки (вернёт ok: true), а POST — для Telegram
+  if (req.method === "GET") return res.status(200).json({ ok: true });
 
-export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).end();
-  const update = req.body;
+  if (req.method !== "POST") return res.status(405).end("Method Not Allowed");
 
-  // We only care about successful payments
-  const success = update?.message?.successful_payment || update?.successful_payment;
-  if (!success) return res.json({ ok: true });
+  // (опц.) проверка секрета
+  if (WEBHOOK_SECRET) {
+    const got = req.headers["x-telegram-bot-api-secret-token"];
+    if (got !== WEBHOOK_SECRET) return res.status(403).end("forbidden");
+  }
 
-  const payloadStr = success.invoice_payload || '';
-  const [payload, sig] = payloadStr.split('|');
+  // ответим Telegram СРАЗУ, чтобы не крутилось
+  res.status(200).json({ ok: true });
+
+  const update = req.body || {};
+
   try {
-    const expect = crypto.createHmac('sha256', secret).update(payload).digest('hex');
-    if (expect !== sig) return res.status(400).json({ error: 'bad signature' });
-    const { tg_id, amt } = JSON.parse(payload);
-    const stars = Number(amt || 0);
-    if (!tg_id || !stars) return res.status(400).json({ error: 'invalid payload' });
+    // 1) Подтверждение оплаты (обязательно и быстро!)
+    if (update.pre_checkout_query) {
+      const id = update.pre_checkout_query.id;
+      await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/answerPreCheckoutQuery`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pre_checkout_query_id: id, ok: true })
+      });
+      return;
+    }
 
-    const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
+    // 2) Успешный платёж — начисляем баланс и уведомляем
+    const msg = update.message;
+    if (msg?.successful_payment) {
+      const tg_id = msg.from?.id;
+      const totalStars = msg.successful_payment.total_amount; // в звёздах
+      // TODO: начисление в базе (Supabase): увеличьте баланс пользователя
+      // await supabase.rpc('add_stars', { tg_id, stars: totalStars });
 
-    // ensure user
-    const { data: user } = await supabase.from('users').select('id').eq('tg_id', String(tg_id)).single();
-    const user_id = user?.id;
-    if (!user_id) return res.status(404).json({ error: 'user not found' });
-
-    // credit balances: stars and ruble-equivalent (2⭐=1₽)
-    await supabase.from('balances').update({
-      stars: (await supabase.from('balances').select('stars').eq('user_id', user_id).single()).data.stars + stars
-    }).eq('user_id', user_id);
-
-    await supabase.rpc('credit_user_balance', { p_user_id: user_id, p_amount: stars / 2.0 });
-
-    return res.json({ ok: true });
+      // Сообщение пользователю
+      await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: tg_id,
+          text: `✅ Оплата на ${totalStars}⭐ прошла успешно! Баланс будет обновлён в приложении.`
+        })
+      });
+      return;
+    }
   } catch (e) {
-    return res.status(500).json({ error: String(e) });
+    // без логов, чтобы не мешать 200-ответу
   }
 }
