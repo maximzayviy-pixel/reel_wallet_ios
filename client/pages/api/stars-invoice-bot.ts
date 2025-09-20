@@ -1,38 +1,53 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 
-const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
-const BOT_USERNAME = process.env.BOT_USERNAME || 'reelwallet_bot';
-
-async function sendMessage(chatId: number, text: string, button?: { text: string; url: string }) {
-  const body: any = { chat_id: chatId, text, parse_mode: 'HTML' };
-  if (button) {
-    body.reply_markup = { inline_keyboard: [[{ text: button.text, url: button.url }]] };
-  }
-  const resp = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  return resp.json();
-}
+const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_BOT || process.env.TG_BOT_TOKEN;
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST');
+    return res.status(405).json({ ok: false, error: 'Method not allowed' });
+  }
+
   try {
-    const method = req.method || 'GET';
-    const amountStars = Number((method === 'GET' ? (req.query.amount_stars as any) : (req.body?.amount_stars)) ?? 0);
-    const tgId = Number((method === 'GET' ? (req.query.tg_id as any) : (req.body?.tg_id)));
-    if (!tgId || !amountStars) return res.status(400).json({ ok: false, error: 'tg_id and amount_stars required' });
+    if (!BOT_TOKEN) {
+      return res.status(500).json({ ok: false, error: 'No BOT TOKEN in env (TELEGRAM_BOT_TOKEN)' });
+    }
 
-    const payload = encodeURIComponent(JSON.stringify({ tg_id: tgId, amount_stars: amountStars, ts: Date.now() }));
-    const link = `https://t.me/${BOT_USERNAME}?startapp=pay_${payload}`;
+    const { amount_stars, tg_id, business_connection_id } = req.body || {};
+    const stars = Number(amount_stars);
 
-    const sent = await sendMessage(tgId, `Оплатите <b>${amountStars}</b> ⭐ через Telegram Stars`, {
-      text: 'Оплатить ⭐',
-      url: link,
+    if (!Number.isFinite(stars) || stars <= 0) {
+      return res.status(400).json({ ok: false, error: 'amount_stars required' });
+    }
+
+    const payload = `stars_topup:${tg_id || ''}:${Date.now()}:${stars}`;
+
+    const body = new URLSearchParams({
+      title: 'Пополнение Reel Wallet',
+      description: `Пополнение баланса на ${stars} ⭐`,
+      payload,
+      currency: 'XTR',
+      prices: JSON.stringify([{ label: '⭐', amount: stars }]),
     });
 
-    return res.status(200).json({ ok: true, link, sent });
+    if (business_connection_id) {
+      body.set('business_connection_id', String(business_connection_id));
+    }
+
+    const r = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/createInvoiceLink`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+    });
+
+    const j = await r.json().catch(() => ({} as any));
+
+    if (!j?.ok || !j?.result) {
+      return res.status(400).json({ ok: false, error: j?.description || 'INVOICE_FAILED' });
+    }
+
+    return res.status(200).json({ ok: true, link: j.result });
   } catch (e: any) {
-    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+    return res.status(500).json({ ok: false, error: e?.message || 'Internal error' });
   }
 }
