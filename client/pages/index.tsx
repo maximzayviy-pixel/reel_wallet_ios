@@ -129,7 +129,7 @@ export default function Home() {
 
         {[
           { name: "Звёзды Telegram (⭐)", amount: stars, sub: `${(stars / 2).toFixed(2)} ₽`, icon: "⭐" },
-          { name: "TON (🔷)", amount: ton, sub: `${(ton * 300).toFixed(2)} ₽`, icon: "🔷" },
+          { name: "TON (ВРЕМЕННО ОТКЛЮЧЕН) (🔷)", amount: ton, sub: `${(ton * 300).toFixed(2)} ₽`, icon: "🔷" },
         ].map((a, i) => (
           <div key={i} className="bg-white rounded-2xl p-4 shadow-sm flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-xl">{a.icon}</div>
