@@ -4,145 +4,233 @@ import { createClient } from "@supabase/supabase-js";
 
 export const config = { api: { bodyParser: { sizeLimit: "6mb" } } };
 
-type ReqBody = {
-  tg_id?: string | number;
-  user_id?: string | number; // из твоего сканера
-  qr_payload?: string;
-  amount_rub?: number | string | null;
-  max_limit_rub?: number | string | null;
-  image_url?: string | null;
-  qr_image_b64?: string | null; // из твоего сканера (data:image/jpeg;base64,...)
-};
-
-function asNumber(x: any): number | null {
-  if (x === null || x === undefined) return null;
-  const n = Number(x);
-  return Number.isFinite(n) ? n : null;
+// ---- helpers ---------------------------------------------------------------
+function ok(res: NextApiResponse, body: any = { ok: true }) {
+  return res.status(200).json(body);
+}
+function bad(res: NextApiResponse, error: string, code = 400, extra?: any) {
+  return res.status(code).json({ ok: false, error, ...extra });
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== "POST") {
-    return res.status(405).json({ ok: false, error: "METHOD_NOT_ALLOWED" });
+async function getRubBalance(
+  supabase: ReturnType<typeof createClient>,
+  tgId: string
+): Promise<{ rub: number; stars: number; ton: number }> {
+  // 1) пробуем VIEW balances_by_tg (ожидаем: tg_id, stars, ton, total_rub)
+  const v = await supabase
+    .from("balances_by_tg")
+    .select("stars, ton, total_rub")
+    .eq("tg_id", tgId)
+    .maybeSingle();
+
+  if (v.data && !v.error) {
+    const stars = Number(v.data.stars || 0);
+    const ton = Number(v.data.ton || 0);
+    const rub = Number(
+      v.data.total_rub != null ? v.data.total_rub : stars / 2 + ton * 300
+    );
+    return { rub, stars, ton };
   }
 
+  // 2) фоллбэк — сырая balances
+  const b = await supabase
+    .from("balances")
+    .select("stars, ton")
+    .eq("tg_id", tgId)
+    .maybeSingle();
+
+  const stars = Number(b.data?.stars || 0);
+  const ton = Number(b.data?.ton || 0);
+  const rub = stars / 2 + ton * 300;
+  return { rub, stars, ton };
+}
+
+function parseDataUrl(dataUrl: string): { mime: string; buffer: Buffer } | null {
   try {
-    const {
-      tg_id,
-      user_id,
-      qr_payload,
-      amount_rub,
-      max_limit_rub,
-      image_url,
-      qr_image_b64,
-    } = (req.body || {}) as ReqBody;
+    const m = dataUrl.match(/^data:(.+);base64,(.*)$/);
+    if (!m) return null;
+    return { mime: m[1], buffer: Buffer.from(m[2], "base64") };
+  } catch {
+    return null;
+  }
+}
 
-    // Совместимость: принимаем и tg_id, и user_id (как у тебя в сканере)
-    const tgId = String(tg_id ?? user_id ?? "").trim();
-    const amountRub = asNumber(amount_rub);
-    const maxLimitRub = asNumber(max_limit_rub);
+async function uploadQrIfNeeded(
+  supabase: ReturnType<typeof createClient>,
+  tgId: string,
+  b64?: string | null
+): Promise<string | null> {
+  if (!b64) return null;
+  const parsed = parseDataUrl(b64);
+  if (!parsed) return null;
 
-    if (!tgId || !qr_payload || !amountRub || amountRub <= 0) {
-      return res.status(400).json({ ok: false, error: "tg_id, qr_payload, amount_rub are required" });
-    }
+  const bucket = process.env.SUPABASE_QR_BUCKET || "qr";
+  // убедимся, что бакет существует (best-effort)
+  try {
+    // @ts-ignore — у supabase-js нет typed API для создания bucket
+    await (supabase.storage as any).createBucket?.(bucket, { public: true });
+  } catch {}
+  const ext = parsed.mime.includes("png") ? "png" : parsed.mime.includes("webp") ? "webp" : "jpg";
+  const key = `${tgId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+  await supabase.storage.from(bucket).upload(key, parsed.buffer, {
+    contentType: parsed.mime,
+    upsert: false,
+  });
+  const { data: pub } = supabase.storage.from(bucket).getPublicUrl(key);
+  return pub?.publicUrl || null;
+}
 
-    const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+// ---- handler ---------------------------------------------------------------
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  // разрешим GET для быстрой проверки
+  if (req.method === "GET") return ok(res, { ok: true });
+  if (req.method !== "POST") return ok(res); // чтобы не было ретраев
+
+  try {
+    const SUPABASE_URL =
+      process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
     const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || "";
-    if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
-      // Без базы всё равно вернём ОК, чтобы не блокировать UX
-      return res.status(200).json({ ok: true, id: null, admin_notified: false, warn: "no_supabase_env" });
-    }
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, { auth: { persistSession: false } });
+    const TG_BOT_TOKEN =
+      process.env.TG_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || "";
+    const ADMIN_TG_ID = process.env.ADMIN_TG_ID || "";
 
-    // 1) Проверка баланса пользователя (таблица balances: tg_id text, stars numeric, ton numeric)
-    let stars = 0, ton = 0;
-    {
-      const { data: bal } = await supabase
-        .from("balances")
-        .select("stars, ton")
-        .eq("tg_id", tgId)
-        .maybeSingle();
-      stars = Number(bal?.stars || 0);
-      ton = Number(bal?.ton || 0);
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+      return bad(res, "SUPABASE_MISCONFIGURED", 500);
     }
-    const rubFromStars = stars / 2;   // 2⭐ = 1₽
-    const rubFromTon = ton * 300;     // 1 TON = 300₽
-    const totalRub = rubFromStars + rubFromTon;
+
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
+      auth: { persistSession: false },
+    });
+
+    // Совместимость: user_id (старый фронт) или tg_id
+    const body = req.body || {};
+    const tgId = String(body.tg_id ?? body.user_id ?? "").trim();
+    const qr_payload = String(body.qr_payload ?? "").trim();
+    const amountRub = Number(body.amount_rub ?? body.amount ?? 0);
+    const maxLimitRub =
+      body.max_limit_rub != null ? Number(body.max_limit_rub) : null;
+    const qr_image_b64 = body.qr_image_b64 as string | undefined;
+
+    if (!tgId || !qr_payload || !amountRub) {
+      return bad(res, "tg_id, qr_payload, amount_rub are required", 400);
+    }
+
+    // 1) баланс (теперь корректно из balances_by_tg -> balances)
+    const { rub: totalRub } = await getRubBalance(supabase, tgId);
 
     if (totalRub < amountRub) {
-      return res.status(402).json({ ok: false, error: "INSUFFICIENT_FUNDS", have_rub: totalRub, need_rub: amountRub });
+      return bad(res, "INSUFFICIENT_FUNDS", 402, {
+        have_rub: totalRub,
+        need_rub: amountRub,
+      });
     }
 
-    // 2) Если пришла картинка base64 — зальём в Supabase Storage (опционально)
-    let finalImageUrl: string | null = image_url || null;
-    if (!finalImageUrl && qr_image_b64 && qr_image_b64.startsWith("data:image")) {
-      try {
-        const bucket = process.env.SUPABASE_QR_BUCKET || "qr";
-        // убедимся что bucket существует
-        await supabase.storage.createBucket(bucket, { public: true }).catch(() => {});
-        const b64 = qr_image_b64.split(",")[1];
-        const bytes = Buffer.from(b64, "base64");
-        const key = `qr_${tgId}_${Date.now()}.jpg`;
-        const up = await supabase.storage.from(bucket).upload(key, bytes, { contentType: "image/jpeg", upsert: true });
-        if (!up.error) {
-          const { data: pub } = supabase.storage.from(bucket).getPublicUrl(key);
-          finalImageUrl = pub?.publicUrl || null;
-        }
-      } catch {
-        // проглатываем — не критично
-      }
+    // 2) резерв: спишем в таблицу locks (в ₽)
+    //    создайте таблицу `balances_locked`:
+    //    id uuid pk default gen_random_uuid(), tg_id text, amount_rub numeric, status text default 'active', created_at timestamptz default now()
+    const { data: lockIns, error: lockErr } = await supabase
+      .from("balances_locked")
+      .insert([{ tg_id: tgId, amount_rub: amountRub, status: "active" }])
+      .select("id")
+      .single();
+    if (lockErr) {
+      return bad(res, "LOCK_FAILED", 500, { details: lockErr.message });
     }
 
-    // 3) Создаём заявку в payment_requests
+    // 3) сохраним фотку QR (если прислали)
+    const imageUrl = await uploadQrIfNeeded(supabase, tgId, qr_image_b64);
+
+    // 4) создаём заявку
     const { data: ins, error: insErr } = await supabase
       .from("payment_requests")
-      .insert([{
-        tg_id: tgId,
-        qr_payload,
-        amount_rub: amountRub,
-        max_limit_rub: maxLimitRub ?? amountRub,
-        status: "pending",
-        image_url: finalImageUrl,
-      }])
+      .insert([
+        {
+          tg_id: tgId,
+          qr_payload,
+          amount_rub: amountRub,
+          max_limit_rub: maxLimitRub ?? amountRub,
+          status: "pending",
+          image_url: imageUrl,
+          lock_id: lockIns.id, // полезно связать с резервом
+        },
+      ])
       .select("id")
       .single();
 
     if (insErr) {
-      return res.status(500).json({ ok: false, error: insErr.message || "insert_failed" });
+      return bad(res, "INSERT_FAILED", 500, { details: insErr.message });
     }
 
-    // 4) Оповестим админа
-    const TG_BOT_TOKEN = process.env.TG_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || "";
-    const ADMIN_TG_ID = process.env.ADMIN_TG_ID || "";
-    let adminNotified = false;
-    if (TG_BOT_TOKEN && ADMIN_TG_ID) {
-      const caption =
-        `<b>#${ins.id}</b>\n` +
-        `Запрос оплаты от <code>${tgId}</code>\n` +
-        `Сумма: <b>${amountRub} ₽</b>\n\n` +
-        (qr_payload?.length ? `<code>${qr_payload.slice(0, 3500)}</code>` : "");
+    // 5) уведомление админу
+    let admin_notified = false;
+    try {
+      if (TG_BOT_TOKEN && ADMIN_TG_ID) {
+        const caption =
+          `<b>#${ins.id}</b>\n` +
+          `Запрос оплаты от <code>${tgId}</code>\n` +
+          `Сумма: <b>${amountRub} ₽</b>\n\n` +
+          (qr_payload.length > 3800
+            ? `<code>${qr_payload.slice(0, 3800)}...</code>`
+            : `<code>${qr_payload}</code>`);
 
-      try {
-        if (finalImageUrl) {
+        if (imageUrl) {
           await fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/sendPhoto`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ chat_id: ADMIN_TG_ID, photo: finalImageUrl, caption, parse_mode: "HTML" }),
+            body: JSON.stringify({
+              chat_id: ADMIN_TG_ID,
+              photo: imageUrl,
+              caption,
+              parse_mode: "HTML",
+              reply_markup: {
+                inline_keyboard: [
+                  [
+                    {
+                      text: "✅ Оплатить",
+                      callback_data: `confirm:${ins.id}`,
+                    },
+                    {
+                      text: "❌ Отказать",
+                      callback_data: `reject:${ins.id}`,
+                    },
+                  ],
+                ],
+              },
+            }),
           });
         } else {
           await fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ chat_id: ADMIN_TG_ID, text: caption, parse_mode: "HTML" }),
+            body: JSON.stringify({
+              chat_id: ADMIN_TG_ID,
+              text: caption,
+              parse_mode: "HTML",
+              reply_markup: {
+                inline_keyboard: [
+                  [
+                    {
+                      text: "✅ Оплатить",
+                      callback_data: `confirm:${ins.id}`,
+                    },
+                    {
+                      text: "❌ Отказать",
+                      callback_data: `reject:${ins.id}`,
+                    },
+                  ],
+                ],
+              },
+            }),
           });
         }
-        adminNotified = true;
-      } catch {
-        adminNotified = false;
+        admin_notified = true;
       }
+    } catch {
+      admin_notified = false;
     }
 
-    return res.status(200).json({ ok: true, id: ins.id, admin_notified: adminNotified });
+    return ok(res, { ok: true, id: ins.id, admin_notified });
   } catch (e: any) {
-    return res.status(500).json({ ok: false, error: e?.message || String(e) });
+    return ok(res, { ok: false, error: e?.message || "UNKNOWN" });
   }
 }
