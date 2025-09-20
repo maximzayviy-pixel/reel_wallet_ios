@@ -1,47 +1,50 @@
-// pages/browser.tsx
+
 import Layout from "../components/Layout";
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 
 export default function Browser() {
   const [gifts, setGifts] = useState<any[]>([]);
+  const [name, setName] = useState("");
+  const [price, setPrice] = useState("");
 
-  useEffect(() => {
-    // тут можно грузить список подарков с твоего API
-    setGifts([
-      { id: 1, name: "💎 Premium Gift", price: 50, desc: "Откроет доступ к фичам" },
-      { id: 2, name: "🎁 Random Box", price: 25, desc: "Случайный сюрприз" }
-    ]);
-  }, []);
+  useEffect(()=>{
+    fetch("/api/gifts-list").then(r=>r.json()).then(setGifts);
+  },[]);
 
-  const buy = async (gift:any) => {
-    const tg: any = (window as any).Telegram?.WebApp;
-    const res = await fetch('/api/gifts-buy', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-telegram-init-data': tg?.initData || '' },
-      body: JSON.stringify({ gift_id: gift.id })
+  const createListing = async () => {
+    if(!name || !price) return alert("Укажи название и цену");
+    const tgId = (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.id;
+    const res = await fetch("/api/gifts-create-listing",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({name, price_stars:Number(price), seller_tg_id:tgId})
     });
-    const json = await res.json();
-    if (json.ok && json.link) {
-      if (tg?.openInvoice) tg.openInvoice(json.link);
-      else window.open(json.link, "_blank");
-    } else {
-      alert(json.error || "Ошибка при покупке");
-    }
+    const j = await res.json();
+    if(j.ok){ alert("Отправлено на модерацию"); setName(""); setPrice(""); }
+    else alert(j.error||"Ошибка");
   };
 
   return (
-    <Layout title="Магазин подарков">
-      <div className="max-w-md mx-auto px-4 py-6 space-y-4">
-        {gifts.map(g=>(
-          <div key={g.id} className="bg-white rounded-2xl p-5 shadow">
-            <div className="font-semibold">{g.name}</div>
-            <div className="text-sm text-slate-500 mb-2">{g.desc}</div>
-            <div className="flex justify-between items-center">
-              <div className="font-bold">{g.price} ⭐</div>
-              <button onClick={()=>buy(g)} className="bg-blue-600 text-white rounded-xl px-4 py-2">Купить</button>
+    <Layout title="Витрина подарков">
+      <div className="max-w-md mx-auto p-4 space-y-6">
+        <div className="bg-white rounded-xl p-4 shadow">
+          <div className="font-semibold mb-2">Продать свой подарок</div>
+          <input value={name} onChange={e=>setName(e.target.value)} placeholder="Название" className="border rounded px-2 py-1 w-full mb-2"/>
+          <input value={price} onChange={e=>setPrice(e.target.value)} placeholder="Цена в ⭐" type="number" className="border rounded px-2 py-1 w-full mb-2"/>
+          <button onClick={createListing} className="bg-blue-600 text-white rounded px-3 py-2">Выставить</button>
+        </div>
+
+        <div className="space-y-3">
+          {gifts.map((g,i)=>(
+            <div key={i} className="bg-white rounded-xl p-4 shadow flex justify-between">
+              <div>
+                <div className="font-semibold">{g.name}</div>
+                <div className="text-sm text-slate-500">{g.price_stars} ⭐</div>
+              </div>
+              <a href={`/api/gifts-buy?id=${g.id}`} className="bg-green-600 text-white px-3 py-1 rounded">Купить</a>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
     </Layout>
   );
