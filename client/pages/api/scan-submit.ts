@@ -2,95 +2,116 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = process.env.SUPABASE_URL!;
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY!;
+export const config = { api: { bodyParser: true } };
 
-// Имена переменных — как в твоих Vercel Settings
-const TG_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const ADMIN_TG_ID  = process.env.TELEGRAM_ADMIN_CHAT;
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
-
-type ReqBody = {
+type Body = {
   tg_id?: number | string;
-  qr_payload?: string;
-  amount_rub?: number | string;
-  imageUrl?: string | null;
+  qr_payload?: string;        // строка SBP/ссылка оплаты
+  amount_rub?: number;        // сумма в рублях
 };
 
+const ok = (res: NextApiResponse, body: any = { ok: true }) => res.status(200).json(body);
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
+  if (req.method !== 'POST') return res.status(405).json({ error: 'METHOD_NOT_ALLOWED' });
 
   try {
-    const { tg_id, qr_payload, amount_rub, imageUrl }: ReqBody = req.body || {};
+    const { tg_id, qr_payload, amount_rub } = (req.body || {}) as Body;
 
-    const tgNum = Number(tg_id);
-    const amt   = Number(amount_rub);
-    const payload = (qr_payload || '').toString();
-
-    if (!tgNum || !isFinite(tgNum) || !payload || !amt || !isFinite(amt)) {
-      return res.status(400).json({ error: 'tg_id, qr_payload, amount_rub are required' });
+    const tgId = Number(tg_id || 0);
+    const amountRub = Number(amount_rub || 0);
+    if (!tgId || !qr_payload || !amountRub) {
+      return res.status(200).json({ error: 'tg_id, qr_payload, amount_rub are required' });
     }
 
-    // Пишем заявку в БД (image_url – опционально)
-    const { data, error } = await supabase
+    const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+    const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || '';
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+      return res.status(200).json({ error: 'supabase config missing' });
+    }
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, { auth: { persistSession: false } });
+
+    const TG_BOT_TOKEN   = process.env.TG_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || '';
+    const ADMIN_CHAT_ID  = process.env.TELEGRAM_ADMIN_CHAT || process.env.ADMIN_TG_ID || '';
+
+    // 1) Проверка достаточности средств (по желанию)
+    // Читаем доступный total_rub
+    let available = 0;
+    try {
+      const { data } = await supabase
+        .from('balances_by_tg')
+        .select('total_rub')
+        .eq('tg_id', tgId)
+        .maybeSingle();
+      available = Number(data?.total_rub || 0);
+    } catch {}
+    if (available < amountRub) {
+      return ok(res, { ok: false, error: 'INSUFFICIENT_FUNDS', need: amountRub, have: available });
+    }
+
+    // 2) Сохраняем заявку
+    const qrImageUrl =
+      `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(qr_payload)}`;
+
+    const { data: reqRow, error: insErr } = await supabase
       .from('payment_requests')
       .insert([{
-        tg_id: tgNum,
-        qr_payload: payload,
-        amount_rub: amt,
-        image_url: imageUrl || null,
-        status: 'pending'
+        tg_id: tgId,
+        qr_payload,
+        qr_image_url: qrImageUrl,           // если у таблицы другое поле — поменяй на своё
+        amount_rub: amountRub,
+        max_limit_rub: amountRub,           // если есть лимит — можно потом менять
+        status: 'new'
       }])
       .select('id')
-      .single();
+      .maybeSingle();
 
-    if (error) {
-      return res.status(500).json({ error: error.message });
+    if (insErr || !reqRow?.id) {
+      return ok(res, { ok: false, error: insErr?.message || 'failed_to_insert_request' });
     }
 
-    // Уведомляем админа, если сконфигурированы переменные
-    let admin_notified = false;
-    let telegram_error: string | undefined;
+    // 3) РЕЗЕРВ средств в ledger (уменьшит доступный баланс)
+    await supabase.from('ledger').insert([{
+      tg_id: tgId,
+      type: 'reserve',
+      amount_rub: amountRub,
+      rate_used: 1,            // т.к. резерв в рублях
+      status: 'hold',
+      metadata: { payment_request_id: reqRow.id, qr_payload }
+    }]);
 
-    if (TG_BOT_TOKEN && ADMIN_TG_ID) {
+    // 4) Оповещение админу (фото QR + текст)
+    if (TG_BOT_TOKEN && ADMIN_CHAT_ID) {
+      const caption =
+        `🧾 Новая заявка #${reqRow.id}\n` +
+        `👤 Пользователь: ${tgId}\n` +
+        `💰 Сумма: ${amountRub} ₽\n\n` +
+        `🔗 ${qr_payload}`;
+
+      // сначала пробуем отправить фото
       try {
-        const msg = [
-          '🧾 <b>Новая заявка на оплату</b>',
-          `ID: <code>${data?.id}</code>`,
-          `От: <code>${tgNum}</code>`,
-          `Сумма: <b>${amt} ₽</b>`
-        ].join('\n');
-
-        const resp = await fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage`, {
+        await fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/sendPhoto`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            chat_id: ADMIN_TG_ID,
-            text: msg,
-            parse_mode: 'HTML',
-            reply_markup: {
-              inline_keyboard: [
-                [{ text: 'Открыть админку', url: `https://${req.headers.host}/admin` }]
-              ]
-            }
+            chat_id: ADMIN_CHAT_ID,
+            photo: qrImageUrl,
+            caption
           })
         });
-        const j = await resp.json();
-        admin_notified = j?.ok === true;
-        if (!admin_notified) telegram_error = j?.description || 'unknown error';
-      } catch (e: any) {
-        telegram_error = e?.message || 'fetch failed';
+      } catch {
+        // если не получилось — просто текст
+        await fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: ADMIN_CHAT_ID, text: caption })
+        });
       }
     }
 
-    return res.status(200).json({
-      ok: true,
-      id: data?.id,
-      admin_notified,
-      telegram_error
-    });
+    return ok(res, { ok: true, id: reqRow.id });
   } catch (e: any) {
-    return res.status(500).json({ error: e?.message || 'Internal error' });
+    console.error('scan-submit error:', e?.message || e);
+    return ok(res, { ok: false, error: 'internal_error' });
   }
 }
