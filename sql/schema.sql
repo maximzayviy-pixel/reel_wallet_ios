@@ -1,4 +1,4 @@
--- sql/schema.sql
+-- sql/schema.sql (ensure columns are present)
 create table if not exists payment_requests (
   id uuid primary key default gen_random_uuid(),
   tg_id bigint not null,
