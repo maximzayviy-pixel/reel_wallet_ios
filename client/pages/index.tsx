@@ -106,7 +106,7 @@ export default function Home() {
             </div>
             <div className="text-right">
               <div className="font-semibold">{a.amount}</div>
-              <div className="text-xs text-slate-500">в единицах</div>
+              <div className="text-xs text-slate-500"></div>
             </div>
           </div>
         ))}
