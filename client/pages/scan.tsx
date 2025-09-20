@@ -1,107 +1,130 @@
-"use client";
+// pages/scan.tsx
 import Layout from "../components/Layout";
 import { useEffect, useRef, useState } from "react";
-import { BrowserMultiFormatReader, IScannerControls } from "@zxing/browser";
-import { parseEMVQR } from "../lib/emv";
+
+// Простейший детектор NSPK: вытягиваем sum= из ссылки (10700 -> 107.00 ₽)
+function parseNspkAmount(payload: string): number | null {
+  try {
+    const u = new URL(payload);
+    const sumStr = u.searchParams.get("sum");
+    if (!sumStr) return null;
+    const v = Number(sumStr);
+    if (!Number.isFinite(v)) return null;
+    // NSPK часто отдаёт копейки *100
+    const rub = v >= 1000 ? v / 100 : v / 100; // оставим /100 универсально
+    return Math.round(rub * 100) / 100;
+  } catch {
+    return null;
+  }
+}
 
 export default function Scan() {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const controlsRef = useRef<IScannerControls | null>(null);
-  const [detected, setDetected] = useState<any|null>(null);
-  const [sending, setSending] = useState(false);
-  const [status, setStatus] = useState<string|null>(null);
+  const [qr, setQr] = useState<string>("");
+  const [amount, setAmount] = useState<number | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const tg: any = (typeof window !== "undefined") ? (window as any).Telegram?.WebApp : null;
 
-  const takeSnapshot = (): string | null => {
-    const v = videoRef.current;
-    if (!v) return null;
-    const canvas = document.createElement('canvas');
-    const w = v.videoWidth, h = v.videoHeight;
-    if (!w || !h) return null;
-    canvas.width = w; canvas.height = h;
-    const ctx = canvas.getContext('2d')!;
-    ctx.drawImage(v, 0, 0, w, h);
-    return canvas.toDataURL('image/jpeg', 0.85);
-  };
-
-
+  // Имитация "сканера": если у тебя уже есть сканер снизу — оставь его. Ниже мы просто реагируем на найденный payload.
   useEffect(() => {
-    const reader = new BrowserMultiFormatReader();
-    (async () => {
-      try {
-        const controls = await reader.decodeFromVideoDevice(undefined, videoRef.current!, (res) => {
-          if (res && !detected) {
-            const text = res.getText();
-            const info = parseEMVQR(text);
-            setDetected({ text, info });
-          }
-        });
-        controlsRef.current = controls;
-      } catch (e:any) {
-        setStatus("Нет доступа к камере: " + (e?.message || e));
-      }
-    })();
-    return () => { controlsRef.current?.stop(); };
-  }, []);
+    if (!qr) return;
+    const a = parseNspkAmount(qr);
+    setAmount(a);
+    setConfirmOpen(true);
+  }, [qr]);
 
-  const sendToAdmin = async () => {
-    if (!detected) return;
-    setSending(true);
+  const onConfirm = async () => {
     try {
-      const userId = (typeof window !== 'undefined' && (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString())
-        || localStorage.getItem('user_id')
-        || 'anonymous';
-      const amount_rub = detected.info?.amount || null;
+      setSubmitting(true);
+      const tg_id = tg?.initDataUnsafe?.user?.id;
+      if (!tg_id) throw new Error("No tg_id");
+
+      const body = {
+        tg_id,
+        qr_payload: qr,
+        amount_rub: amount ?? 0,
+        image_url: sessionStorage.getItem("scan_last_photo") || null
+      };
+
       const res = await fetch("/api/scan-submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_id: userId,
-          qr_payload: detected.text,
-          qr_image_b64: takeSnapshot(),
-          amount_rub,
-          max_limit_rub: amount_rub || 0
-        })
+        body: JSON.stringify(body)
       });
-      if (!res.ok) throw new Error(await res.text());
-      setStatus("QR отправлен админу. Ожидайте подтверждения.");
+      const j = await res.json();
+      if (!res.ok || !j.ok) {
+        alert(j.error || "Ошибка отправки заявки");
+      } else {
+        toast("Отправлено админу");
+        setConfirmOpen(false);
+        setQr("");
+      }
     } catch (e:any) {
-      setStatus("Ошибка: " + (e?.message || e));
+      alert(e?.message || String(e));
     } finally {
-      setSending(false);
+      setSubmitting(false);
     }
   };
 
-  return (
-    <Layout title="Reel Wallet — Сканер">
-      <div className="relative max-w-md mx-auto">
-        <div className="relative">
-          <video ref={videoRef} className="w-full h-auto rounded-b-3xl" />
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className="w-64 h-64 border-4 border-white/80 rounded-2xl" style={{boxShadow:'0 0 0 9999px rgba(0,0,0,.4) inset'}}/>
-          </div>
-          <div className="absolute top-2 left-0 right-0 text-center text-white/90 text-xs">Наведите на QR-код СБП</div>
-        </div>
+  const onCancel = () => {
+    setConfirmOpen(false);
+  };
 
-        {detected && (
-          <div className="px-4 mt-4">
-            <div className="bg-white rounded-2xl p-4 shadow">
-              <div className="text-sm text-slate-500">Данные QR</div>
-              <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
-                <div className="text-slate-500">Сумма</div><div className="font-semibold">{detected.info?.amount ? `${detected.info.amount} ₽` : '—'}</div>
-                <div className="text-slate-500">Валюта</div><div>{detected.info?.currency || '—'}</div>
-                <div className="text-slate-500">Мерчант</div><div>{detected.info?.merchant || '—'}</div>
-                <div className="text-slate-500">Город</div><div>{detected.info?.city || '—'}</div>
-              </div>
-              <div className="mt-3 flex gap-2 justify-end">
-                <button onClick={sendToAdmin} disabled={sending} className="bg-blue-600 text-white px-4 py-2 rounded-xl">{sending ? 'Отправка...' : 'Оплатить'}</button>
-                <button onClick={()=>setDetected(null)} className="bg-slate-200 px-4 py-2 rounded-xl">Отказаться</button>
-              </div>
+  // Встраиваем твой сканер: вызови setQr(payload) когда распознаешь QR + сохрани фото в sessionStorage.setItem('scan_last_photo', url)
+  // Пример фейкового скана кнопкой (удали в бою)
+  const fakeScan = () => {
+    const demo = "https://qr.nspk.ru/BD100071611VK3ET8V4P5OC3PCB51QRU?type=02&sum=10700&cur=RUB";
+    setQr(demo);
+    sessionStorage.setItem("scan_last_photo", "");
+  };
+
+  return (
+    <Layout title="Сканировать QR">
+      <div className="max-w-md mx-auto p-4">
+        <div className="rounded-2xl bg-white p-4 shadow-sm text-center">
+          <div className="text-sm text-slate-600 mb-2">Наведите камеру на QR СБП</div>
+          <div className="aspect-square rounded-xl bg-slate-100 grid place-items-center">
+            <button onClick={fakeScan} className="text-slate-500 text-sm underline">Фейк-скан (демо)</button>
+          </div>
+        </div>
+      </div>
+
+      {confirmOpen && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center">
+          <div className="w-full max-w-md bg-white rounded-t-2xl sm:rounded-2xl p-5">
+            <div className="text-center">
+              <div className="text-xs text-slate-500 mb-1">Сумма к оплате</div>
+              <div className="text-3xl font-semibold mb-2">{amount != null ? `${amount.toFixed(2)} ₽` : "—"}</div>
+              <div className="text-xs text-slate-500 break-all">{qr}</div>
+            </div>
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <button
+                onClick={onCancel}
+                disabled={submitting}
+                className="rounded-xl border border-slate-200 py-3 font-medium"
+              >
+                Отказаться
+              </button>
+              <button
+                onClick={onConfirm}
+                disabled={submitting}
+                className="rounded-xl bg-blue-600 text-white py-3 font-medium"
+              >
+                {submitting ? "Отправляем…" : "Оплатить"}
+              </button>
             </div>
           </div>
-        )}
-
-        {status && <div className="px-4 mt-3 text-sm text-slate-700">{status}</div>}
-      </div>
+        </div>
+      )}
     </Layout>
   );
+}
+
+// мини-тост без зависимостей
+function toast(text: string) {
+  const el = document.createElement("div");
+  el.className = "fixed left-1/2 -translate-x-1/2 bottom-6 z-[60] bg-black text-white text-sm px-4 py-2 rounded-full shadow-xl";
+  el.textContent = text;
+  document.body.appendChild(el);
+  setTimeout(() => { el.remove(); }, 1800);
 }
