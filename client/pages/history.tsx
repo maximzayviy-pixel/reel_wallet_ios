@@ -1,34 +1,86 @@
 import Layout from "../components/Layout";
-import Preloader from "../components/Preloader";
+import Skeleton from "../components/Skeleton";
 import { useEffect, useState } from "react";
-type Row = { id:string; type:string; amount?:number; amount_rub?:number; created_at?:string; status?:string };
-export default function History(){
-  const [rows, setRows] = useState<Row[]>([]);
+import { createClient } from "@supabase/supabase-js";
+
+type Req = {
+  id: string;
+  status: "new" | "paid" | "rejected";
+  amount_rub: number | null;
+  max_limit_rub: number | null;
+  created_at: string;
+};
+
+const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
+
+export default function History() {
+  const [rows, setRows] = useState<Req[]>([]);
   const [loading, setLoading] = useState(true);
-  useEffect(()=>{(async()=>{
+
+  useEffect(() => {
+    let mounted = true;
+    const load = async () => {
       try {
-        const tgId = (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.id;
-        if(!tgId) { setLoading(false); return; }
-        const r = await fetch(`/api/history?tg_id=${tgId}`);
-        const j = await r.json();
-        if(j.ok) setRows(j.items||[]);
-      } finally { setLoading(false); }
-    })();},[]);
-  return (<Layout title="История операций">
-    {loading? <Preloader fullscreen/> : (
+        const userId =
+          (typeof window !== "undefined" &&
+            (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.id?.toString()) ||
+          localStorage.getItem("user_id");
+        if (!userId) return;
+        const { data } = await supabase
+          .from("payment_requests")
+          .select("id,status,amount_rub,max_limit_rub,created_at")
+          .order("created_at", { ascending: false })
+          .limit(100);
+        if (mounted && data) setRows(data as any);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+    load();
+    const ch = supabase
+      .channel("pr-list")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "payment_requests" },
+        () => load()
+      )
+      .subscribe();
+    return () => {
+      mounted = false;
+      supabase.removeChannel(ch);
+    };
+  }, []);
+
+  if (loading) {
+    return (
+      <Layout title="История">
+        <div className="max-w-md mx-auto p-4 space-y-3">
+          <Skeleton className="h-16 w-full" />
+          <Skeleton className="h-16 w-full" />
+          <Skeleton className="h-16 w-full" />
+        </div>
+      </Layout>
+    );
+  }
+
+  return (
+    <Layout title="История">
       <div className="max-w-md mx-auto p-4 space-y-3">
-        {rows.length===0 && <div className="text-center text-slate-500 mt-10">Пока пусто</div>}
-        {rows.map((r)=> (
-          <div key={r.id} className="bg-white rounded-xl p-4 shadow flex items-center justify-between">
-            <div><div className="font-medium">{r.type}</div>
-              <div className="text-xs text-slate-500">{new Date(r.created_at||'').toLocaleString()}</div></div>
-            <div className="text-right">
-              <div className="font-semibold">{(r.amount_rub ?? r.amount ?? 0)} {r.amount_rub ? "₽" : "⭐"}</div>
-              {r.status && <div className="text-xs text-slate-500">{r.status}</div>}
+        {rows.map((r) => (
+          <div key={r.id} className="bg-white rounded-2xl p-4 shadow-sm flex items-center justify-between">
+            <div>
+              <div className="font-semibold">
+                {r.status === "new" ? "⏳ В обработке" : r.status === "paid" ? "✅ Оплачено" : "❌ Отклонено"}
+              </div>
+              <div className="text-xs text-slate-500">{new Date(r.created_at).toLocaleString()}</div>
+            </div>
+            <div className="text-right font-semibold">
+              {(r.amount_rub ?? r.max_limit_rub ?? 0).toFixed(2)} ₽
             </div>
           </div>
         ))}
+        {!rows.length && <div className="text-center text-slate-500">Заявок пока нет</div>}
       </div>
-    )}
-  </Layout>);
+    </Layout>
+  );
 }
