@@ -1,7 +1,7 @@
 import Skeleton from '../components/Skeleton';
 import Layout from "../components/Layout";
 import { Wallet, Send, Shuffle, QrCode } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 export default function Home() {
   const [user, setUser] = useState<any>(null);
@@ -9,41 +9,74 @@ export default function Home() {
   const [ton, setTon] = useState<number>(0);
   const [loading, setLoading] = useState(true);
 
-  const tg: any =
-    typeof window !== "undefined" ? (window as any).Telegram?.WebApp : null;
+  const tg: any = useMemo(
+    () => (typeof window !== "undefined" ? (window as any).Telegram?.WebApp : null),
+    []
+  );
 
-  useEffect(() => {
-    // забираем юзера из Mini App (если есть)
-    try {
-      const u = tg?.initDataUnsafe?.user;
-      if (u) setUser(u);
-    } catch {}
+  const tgIdRef = useRef<number | null>(null);
+  const pollingRef = useRef<any>(null);
 
+  // единая функция получения баланса
+  const fetchBalance = async () => {
     const tgId =
       tg?.initDataUnsafe?.user?.id ||
       (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.id;
 
+    tgIdRef.current = tgId || null;
     if (!tgId) {
       setLoading(false);
       return;
     }
 
-    (async () => {
-      try {
-        const res = await fetch(`/api/my-balance?tg_id=${tgId}`);
-        const json = await res.json();
+    try {
+      const res = await fetch(`/api/my-balance?tg_id=${tgId}`);
+      const json = await res.json();
+      const src = json?.balance ? json.balance : json;
+      setStars(Number(src?.stars || 0));
+      setTon(Number(src?.ton || 0));
+    } catch (e) {
+      console.warn("balance fetch error", e);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-        // поддерживаем оба формата ответа
-        const src = json?.balance ? json.balance : json;
+  // инициализация юзера + первый фетч
+  useEffect(() => {
+    try {
+      const u = tg?.initDataUnsafe?.user;
+      if (u) setUser(u);
+    } catch {}
 
-        setStars(Number(src?.stars || 0));
-        setTon(Number(src?.ton || 0));
-      } catch (e) {
-        console.warn('balance fetch error', e);
-      } finally {
-        setLoading(false);
+    fetchBalance();
+
+    // подписка на закрытие инвойса (оплата звёздами в Mini App)
+    const onInvoiceClosed = (data: any) => {
+      // Telegram шлёт { status: "paid" | "failed" | "cancelled", invoiceSlug?: string }
+      if (data?.status === "paid") {
+        fetchBalance();
       }
-    })();
+    };
+    tg?.onEvent?.("invoiceClosed", onInvoiceClosed);
+
+    // обновлять при возврате во вкладку
+    const onVisible = () => {
+      if (document.visibilityState === "visible") fetchBalance();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", fetchBalance);
+
+    // лёгкий пуллинг, если Телеграм не прислал ивент (редко бывает)
+    pollingRef.current = setInterval(fetchBalance, 15000);
+
+    return () => {
+      tg?.offEvent?.("invoiceClosed", onInvoiceClosed);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", fetchBalance);
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tg]);
 
   const total = (stars / 2) + (ton * 300);
