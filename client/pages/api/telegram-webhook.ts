@@ -5,63 +5,49 @@ import { createClient } from '@supabase/supabase-js';
 export const config = { api: { bodyParser: true } };
 
 type TGUpdate = {
-  update_id?: number;
   message?: any;
   edited_message?: any;
   pre_checkout_query?: {
     id: string;
     from: { id: number };
     currency: string;
-    total_amount: number;      // для Stars это и есть кол-во звёзд
+    total_amount: number;
     invoice_payload: string;
   };
-  callback_query?: any;
 };
 
-// ограничитель ожидания побочных операций (чтобы не блокировать цикл)
-function runQuickly<T>(p: Promise<T>, ms = 800): Promise<T | undefined> {
-  return Promise.race([
-    p,
-    new Promise<T | undefined>((r) => setTimeout(() => r(undefined), ms)),
-  ]) as Promise<T | undefined>;
-}
-
 const ok = (res: NextApiResponse, body: any = { ok: true }) => res.status(200).json(body);
+const runQuickly = <T,>(p: Promise<T>, ms = 800) =>
+  Promise.race([p, new Promise<T | undefined>(r => setTimeout(() => r(undefined as any), ms))]);
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  // GET удобно для быстрой проверки
   if (req.method === 'GET') return ok(res, { ok: true });
+  // Telegram ретраит при не-200, поэтому отвечаем сразу
   if (req.method !== 'POST') return ok(res);
 
-  // опциональный секрет вебхука
+  // (опционально) секрет вебхука
   const requiredSecret = process.env.TG_WEBHOOK_SECRET;
   const gotSecret = req.headers['x-telegram-bot-api-secret-token'] as string | undefined;
-  if (requiredSecret && gotSecret !== requiredSecret) {
-    return res.status(403).json({ ok: false, error: 'bad secret' });
-  }
+  if (requiredSecret && gotSecret !== requiredSecret) return ok(res); // не ретраим
 
-  // мгновенно отвечаем TG, чтобы не было «крутилки»
+  // мгновенный ответ
   ok(res);
 
-  const TG_BOT_TOKEN =
-    process.env.TG_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || '';
-  const SUPABASE_URL =
-    process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+  const TG_BOT_TOKEN = process.env.TG_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || '';
+  const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '';
   const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || '';
 
-  const BALANCES = process.env.TABLE_BALANCES || 'balances';
   const LEDGER = process.env.TABLE_LEDGER || 'ledger';
 
   const update = (req.body || {}) as TGUpdate;
-
   const supabase =
     SUPABASE_URL && SUPABASE_SERVICE_KEY
-      ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
-          auth: { persistSession: false },
-        })
+      ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, { auth: { persistSession: false } })
       : null;
 
   try {
-    // 1) обязательно подтверждаем pre_checkout_query — иначе вечная загрузка
+    // 1) Подтверждаем pre_checkout_query
     if (update.pre_checkout_query && TG_BOT_TOKEN) {
       const pcq = update.pre_checkout_query;
       await runQuickly(
@@ -73,70 +59,40 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       );
     }
 
-    // 2) успешный платёж Stars (XTR)
+    // 2) Успешный платеж Stars
     const msg = update.message || update.edited_message;
-    if (msg?.successful_payment && supabase) {
-      const fromId = String(msg?.from?.id || '');
-      const sp = msg.successful_payment;
-      const currency = sp.currency;               // 'XTR'
-      const total = Number(sp.total_amount || 0); // кол-во звёзд
-      const stars = currency === 'XTR' ? total : 0;
+    const sp = msg?.successful_payment;
+    if (sp && supabase) {
+      const fromId = Number(msg?.from?.id || 0);
+      const currency = sp.currency;               // обычно 'XTR'
+      const total = Number(sp.total_amount || 0); // для Stars — это кол-во звёзд
+      if (fromId && currency === 'XTR' && total > 0) {
+        // нормализуем вход
+        const stars = total;
+        const amountRub = stars / 2;         // ваш курс 2⭐ = 1₽
+        const rate = 0.5;
 
-      if (fromId && stars > 0) {
-        // читаем текущую запись
-        let exists = false;
-        let currentStars = 0;
+        // пишем ТОЛЬКО в ledger — balances_by_tg всё сам посчитает
+        await supabase.from(LEDGER).insert([{
+          tg_id: fromId,
+          type: 'stars_topup',
+          asset_amount: stars,       // звёзды
+          amount_rub: amountRub,     // рублёвый эквивалент
+          rate_used: rate,
+          status: 'ok',
+          metadata: sp,
+        }]);
 
+        // (не обязательно) телеметрия
         try {
-          const { data: existing } = await supabase
-            .from(BALANCES)
-            .select('stars')
-            .eq('tg_id', fromId)
-            .maybeSingle();
-          if (existing) {
-            exists = true;
-            currentStars = Number(existing.stars || 0);
-          }
+          await supabase.from('webhook_logs').insert([{
+            kind: 'successful_payment',
+            tg_id: fromId,
+            payload: sp
+          }]);
         } catch {}
 
-        const nextStars = Number(currentStars) + Number(stars);
-
-        // обновляем/создаём баланс
-        try {
-          if (exists) {
-            await supabase
-              .from(BALANCES)
-              .update({ stars: nextStars })
-              .eq('tg_id', fromId);
-          } else {
-            await supabase
-              .from(BALANCES)
-              .upsert([{ tg_id: fromId, stars: nextStars, ton: 0 }], {
-                onConflict: 'tg_id',
-              });
-          }
-        } catch {
-          // дубль на случай гонок/индексов
-          await supabase
-            .from(BALANCES)
-            .upsert([{ tg_id: fromId, stars: nextStars, ton: 0 }], {
-              onConflict: 'tg_id',
-            });
-        }
-
-        // запись в журнал (не обязательно, но полезно)
-        try {
-          await supabase.from(LEDGER).insert([
-            {
-              tg_id: fromId,
-              type: 'stars_topup',
-              amount: stars,
-              meta: sp, // если в schema другое поле, этот блок можно убрать
-            },
-          ]);
-        } catch {}
-
-        // уведомление пользователю (best-effort)
+        // (не обязательно) уведомление пользователю
         if (TG_BOT_TOKEN) {
           await runQuickly(
             fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage`, {
@@ -151,7 +107,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
       }
     }
-  } catch {
-    // мы уже вернули 200 — Telegram не будет ретраить
+  } catch (e: any) {
+    console.error('webhook error:', e?.message || e);
+    // не даём TG ретраить — ответ уже отправлен
   }
 }
