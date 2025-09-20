@@ -6,7 +6,7 @@ export default function Browser() {
     <Layout title="Витрина подарков">
       <div className="flex items-center justify-center h-[70vh]">
         <img
-          src="/update.gif"
+          src="https://i.imgur.com/PwubBkx.png"
           alt="В разработке..."
           className="rounded-xl shadow-lg max-w-full"
         />
