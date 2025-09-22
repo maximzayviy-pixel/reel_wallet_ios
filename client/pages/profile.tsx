@@ -24,6 +24,12 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
+// ✅ список админов через .env (можно: NEXT_PUBLIC_ADMINS=7264453091,12345678)
+const ADMINS_ENV = (process.env.NEXT_PUBLIC_ADMINS || "")
+  .split(",")
+  .map(s => s.trim())
+  .filter(Boolean);
+
 export default function Profile() {
   const [u, setU] = useState<TGUser | null>(null);
   const [status, setStatus] = useState("Открой через Telegram Mini App, чтобы связать профиль.");
@@ -38,6 +44,8 @@ export default function Profile() {
 
   useEffect(() => {
     let tries = 0;
+    let usersChannel: ReturnType<typeof supabase.channel> | null = null;
+
     const t = setInterval(() => {
       tries++;
       try {
@@ -48,6 +56,11 @@ export default function Profile() {
           setU(user);
           setStatus("Связано с Telegram");
 
+          // ⚡️ мгновенный оверрайд из ENV — чтобы админка открывалась сразу
+          const isEnvAdmin = ADMINS_ENV.includes(String(user.id));
+          if (isEnvAdmin) setRole("admin");
+
+          // апсерт в БД
           fetch("/api/auth-upsert", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -59,6 +72,7 @@ export default function Profile() {
             }),
           }).catch(() => {});
 
+          // флаг верификации
           fetch("/api/verify-status", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -68,23 +82,46 @@ export default function Profile() {
             .then(j => setIsVerified(!!j?.verified))
             .catch(()=>{});
 
-          // 👇 правка тут
+          // роль из БД (без .catch, но с безопасной установкой)
           supabase
             .from("users")
             .select("role")
             .eq("tg_id", user.id)
             .maybeSingle()
             .then(({ data, error }) => {
-              if (!error) setRole((data as RoleRow)?.role || "user");
+              if (!error) {
+                const dbRole = (data as RoleRow)?.role || "user";
+                setRole(isEnvAdmin ? "admin" : dbRole);
+              } else {
+                // если БД не ответила — оставляем env-оверрайд/по умолчанию
+                setRole(isEnvAdmin ? "admin" : "user");
+              }
             });
-          // ☝️ без .catch
+
+          // 🔴 realtime: если роль поменяют в БД — обновим UI
+          usersChannel = supabase
+            .channel(`users-role-${user.id}`)
+            .on(
+              "postgres_changes",
+              { event: "*", schema: "public", table: "users", filter: `tg_id=eq.${user.id}` },
+              (payload: any) => {
+                const newRole = payload?.new?.role || payload?.old?.role || "user";
+                const isEnvAdminNow = ADMINS_ENV.includes(String(user.id));
+                setRole(isEnvAdminNow ? "admin" : newRole);
+              }
+            )
+            .subscribe();
 
         } else if (tries > 60) {
           clearInterval(t);
         }
       } catch {}
     }, 100);
-    return () => clearInterval(t);
+
+    return () => {
+      clearInterval(t);
+      if (usersChannel) supabase.removeChannel(usersChannel);
+    };
   }, []);
 
   const copyId = async () => {
