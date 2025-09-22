@@ -12,48 +12,38 @@ function bad(res: NextApiResponse, error: string, code = 400, extra?: any) {
   return res.status(code).json({ ok: false, error, ...extra });
 }
 
-
 async function getRubBalance(
   supabase: ReturnType<typeof createClient>,
   tgId: string
 ): Promise<{ rub: number; stars: number; ton: number }> {
   // 1) пробуем VIEW balances_by_tg (ожидаем: tg_id, stars, ton, total_rub)
-  const { data: vdata } = await supabase
+  const v = await supabase
     .from("balances_by_tg")
     .select("stars, ton, total_rub")
     .eq("tg_id", tgId)
-    .maybeSingle();
+    .maybeSingle<any>();
 
-  if (vdata) {
-    const stars = Number(vdata.stars || 0);
-    const ton = Number(vdata.ton || 0);
+  if (v.data && !v.error) {
+    const stars = Number(v.data.stars || 0);
+    const ton = Number(v.data.ton || 0);
     const rub = Number(
-      vdata.total_rub != null ? vdata.total_rub : stars / 2 + ton * 300
+      v.data.total_rub != null ? v.data.total_rub : stars / 2 + ton * 300
     );
     return { rub, stars, ton };
   }
 
-  // 2) фоллбэк — найдём user_id по tg_id и посмотрим balances
-  const { data: u } = await supabase
-    .from("users")
-    .select("id")
-    .eq("tg_id", tgId)
-    .maybeSingle();
-
-  if (!u?.id) return { rub: 0, stars: 0, ton: 0 };
-
-  const { data: bdata } = await supabase
+  // 2) фоллбэк — сырая balances
+  const b = await supabase
     .from("balances")
     .select("stars, ton")
-    .eq("user_id", u.id)
-    .maybeSingle();
+    .eq("tg_id", tgId)
+    .maybeSingle<any>();
 
-  const stars = Number(bdata?.stars || 0);
-  const ton = Number(bdata?.ton || 0);
+  const stars = Number(b.data?.stars || 0);
+  const ton = Number(b.data?.ton || 0);
   const rub = stars / 2 + ton * 300;
   return { rub, stars, ton };
 }
-
 
 function parseDataUrl(dataUrl: string): { mime: string; buffer: Buffer } | null {
   try {
