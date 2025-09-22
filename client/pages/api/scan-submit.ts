@@ -43,33 +43,33 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   // --- Balance validation ---
   try {
-    const { data: userRow, error: userErr } = await supabase
-      .from("users")
-      .select("id,balance_stars")
-      .filter("tg_id", "eq", tg_id) // 👈 теперь без String()
+    const { data: balRow, error: balErr } = await supabase
+      .from("balances_by_tg")
+      .select("stars_numeric")
+      .eq("tg_id", tg_id)
       .maybeSingle();
 
-    if (userErr) {
-      console.error("user lookup error", userErr);
+    if (balErr) {
+      console.error("balance lookup error", balErr);
     }
 
-    if (!userRow) {
+    if (!balRow) {
       console.error("402 NO_USER", { tgId: tg_id });
       return res.status(402).json({ ok: false, reason: "NO_USER" });
     }
 
     const needStars = Math.round(amount_rub * 2);
-    if (userRow.balance_stars < needStars) {
+    if (balRow.stars_numeric < needStars) {
       console.error("402 INSUFFICIENT_BALANCE", {
         tgId: tg_id,
         need: needStars,
-        have: userRow.balance_stars,
+        have: balRow.stars_numeric,
       });
       return res.status(402).json({
         ok: false,
         reason: "INSUFFICIENT_BALANCE",
         need: needStars,
-        have: userRow.balance_stars,
+        have: balRow.stars_numeric,
       });
     }
   } catch (e) {
