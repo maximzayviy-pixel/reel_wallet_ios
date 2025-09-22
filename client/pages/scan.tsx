@@ -118,7 +118,7 @@ export default function Scan() {
       });
       const json = await res.json();
       if (!res.ok || !json?.ok) throw new Error(json?.error || "scan-submit failed");
-      setStatus(json?.admin_notified ? "✅ Запрос оплаты...." : "⚠️ Запрос сохранён, но админ недоступен");
+      setStatus(json?.admin_notified ? "✅ Отправлено админу" : "⚠️ Запрос сохранён, но админ недоступен");
       setData(null);
     } catch (e:any) {
       setStatus(`Ошибка: ${e?.message || String(e)}`);
