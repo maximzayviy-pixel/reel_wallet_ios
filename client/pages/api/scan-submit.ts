@@ -88,7 +88,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   } catch (e) {
     console.error("Balance check failed", e);
   }
-  // --- End balance validation ---
 
   // --- 3) Запишем заявку ---
   const { data: ins, error: insErr } = await supabase
@@ -96,7 +95,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     .insert([
       {
         tg_id,
-        user_id: userId, // 👈 правильный UUID
+        user_id: userId, // UUID
         qr_payload,
         amount_rub,
         status: "pending",
@@ -116,6 +115,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const ADMIN_TG_ID =
     process.env.ADMIN_TG_ID || process.env.TELEGRAM_ADMIN_CHAT || "";
   let adminNotified = false;
+  let telegram_debug: any = null;
 
   if (TG_BOT_TOKEN && ADMIN_TG_ID) {
     const caption =
@@ -134,9 +134,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     };
 
     try {
-      let sent;
-      if (qr_image_b64) {
-        sent = await fetch(
+      let resp;
+      const isHttpUrl =
+        typeof qr_image_b64 === "string" && /^https?:\/\//i.test(qr_image_b64);
+
+      if (isHttpUrl) {
+        // если фото реально URL
+        resp = await fetch(
           `https://api.telegram.org/bot${TG_BOT_TOKEN}/sendPhoto`,
           {
             method: "POST",
@@ -151,7 +155,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           }
         );
       } else {
-        sent = await fetch(
+        // если base64 или ничего — отправляем текст
+        resp = await fetch(
           `https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage`,
           {
             method: "POST",
@@ -165,15 +170,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           }
         );
       }
-      const j = await sent.json().catch(() => ({}));
+
+      const j = await resp.json().catch(() => ({}));
+      telegram_debug = { ok: j?.ok, error_code: j?.error_code, description: j?.description };
       adminNotified = !!j?.ok;
-    } catch (e) {
-      console.error("admin notify failed", e);
+    } catch (e: any) {
+      telegram_debug = { ok: false, exception: String(e) };
       adminNotified = false;
     }
   }
 
   return res
     .status(200)
-    .json({ ok: true, id: ins.id, admin_notified: adminNotified });
+    .json({ ok: true, id: ins.id, admin_notified: adminNotified, telegram_debug });
 }
