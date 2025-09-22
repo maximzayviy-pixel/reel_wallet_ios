@@ -86,3 +86,42 @@ export function parseEMVQR(raw: string): EmvNode {
 
   return { raw, currency, amount, merchant, city, account, additional, nodes: root.nodes };
 }
+
+
+/**
+ * Lightweight parser for SBP (NSPK) functional link:
+ * https://qr.nspk.ru/QR_ID?type=01&bank=000000000001&sum=10000&cur=RUB&crc=ABCD
+ * sum — amount in kopecks (e.g. 10000 => 100.00 RUB)
+ */
+export function parseSBPLink(raw: string) {
+  try {
+    const u = new URL(raw);
+    const hostOk = /(^|\.)qr\.nspk\.ru$/i.test(u.hostname) || /(^|\.)sub\.nspk\.ru$/i.test(u.hostname);
+    if (!hostOk) return null;
+    const params = u.searchParams;
+    const type = params.get("type") || undefined;
+    const bank = params.get("bank") || undefined;
+    const sumStr = params.get("sum");
+    const cur = (params.get("cur") || "RUB").toUpperCase();
+    const crc = params.get("crc") || undefined;
+
+    let amountRub: number | null = null;
+    if (sumStr && /^\d+$/.test(sumStr)) {
+      // kopecks to RUB
+      amountRub = Number(sumStr) / 100;
+    }
+
+    return {
+      raw,
+      sbp: true,
+      host: u.hostname,
+      type,
+      bank,
+      currency: cur,
+      amount: amountRub, // in RUB
+      crc,
+    };
+  } catch {
+    return null;
+  }
+}
