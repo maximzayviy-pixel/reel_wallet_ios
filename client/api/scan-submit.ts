@@ -56,7 +56,7 @@ function parseDataUrl(dataUrl: string): { mime: string; buffer: Buffer } | null 
 }
 
 async function uploadQrIfNeeded(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   tgId: string,
   b64?: string | null
 ): Promise<string | null> {
