@@ -9,14 +9,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
   const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, { auth: { persistSession: false } });
 
   const { tg_id, username, first_name, last_name } = req.body;
-
   if (!tg_id) return res.status(400).json({ ok: false, error: "tg_id required" });
 
-  // upsert именно по tg_id
   const { data, error } = await supabase
     .from("users")
     .upsert(
@@ -27,7 +24,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         last_name,
         role: "user",
       },
-      { onConflict: "tg_id" }   // <-- важно
+      { onConflict: "tg_id" }   // 🔑 ключевая правка
     )
     .select()
     .single();
