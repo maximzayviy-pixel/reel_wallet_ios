@@ -1,9 +1,11 @@
 // pages/profile.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Layout from "../components/Layout";
 import Skeleton from "../components/Skeleton";
+import { createClient } from "@supabase/supabase-js";
+import Link from "next/link";
 
 type TGUser = {
   id: number;
@@ -15,11 +17,24 @@ type TGUser = {
   photo_url?: string;
 };
 
+type RoleRow = { role?: string | null };
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+
 export default function Profile() {
   const [u, setU] = useState<TGUser | null>(null);
   const [status, setStatus] = useState("Открой через Telegram Mini App, чтобы связать профиль.");
   const [isVerified, setIsVerified] = useState<boolean>(false);
   const [loadingVerify, setLoadingVerify] = useState(false);
+  const [role, setRole] = useState<string>("user");
+
+  // промокод
+  const [code, setCode] = useState("");
+  const [promoState, setPromoState] = useState<null | { ok: boolean; msg: string }>(null);
+  const disabledRedeem = useMemo(() => !code.trim() || !u?.id, [code, u?.id]);
 
   // Подтягиваем TG-профиль + апсертим в БД
   useEffect(() => {
@@ -45,7 +60,7 @@ export default function Profile() {
             }),
           }).catch(() => {});
 
-          // тянем флаг верификации
+          // верификация
           fetch("/api/verify-status", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -53,6 +68,15 @@ export default function Profile() {
           })
             .then(r => r.json())
             .then(j => setIsVerified(!!j?.verified))
+            .catch(()=>{});
+
+          // роль из БД
+          supabase
+            .from("users")
+            .select("role")
+            .eq("tg_id", user.id)
+            .maybeSingle()
+            .then(({ data }) => setRole((data as RoleRow)?.role || "user"))
             .catch(()=>{});
         } else if (tries > 60) {
           clearInterval(t);
@@ -67,11 +91,11 @@ export default function Profile() {
     try { await navigator.clipboard.writeText(String(u.id)); } catch {}
   };
 
-  const openTG = () => {
-    if (!u?.username) return;
+  const openSupport = () => {
     const tg = (window as any)?.Telegram?.WebApp;
-    const url = `https://t.me/${u.username}`;
-    if (tg?.openTelegramLink) tg.openTelegramLink(url); else window.open(url, "_blank");
+    const url = "https://t.me/ReelWalet";
+    if (tg?.openTelegramLink) tg.openTelegramLink(url);
+    else window.open(url, "_blank");
   };
 
   const buyVerify = async () => {
@@ -85,49 +109,60 @@ export default function Profile() {
         body: JSON.stringify({ tg_id: u.id }),
       });
       const j = await r.json();
+
       if (!j.ok) throw new Error(j.error || "INVOICE_FAILED");
-      // открываем звёздный инвойс
-      if (tg?.openInvoice) tg.openInvoice(j.link);
-      else if (tg?.openTelegramLink) tg.openTelegramLink(j.link);
-      else window.open(j.link, "_blank");
-    } catch (e:any) {
-      alert(e.message || "Ошибка");
+
+      // разные ключи на всякий случай
+      const link = j.link || j.invoice_link || j.url;
+      if (!link) throw new Error("INVOICE_LINK_EMPTY");
+
+      if (tg?.openInvoice) tg.openInvoice(link);
+      else if (tg?.openTelegramLink) tg.openTelegramLink(link);
+      else window.open(link, "_blank");
+    } catch (e: any) {
+      alert(e?.message || "Ошибка");
     } finally {
       setLoadingVerify(false);
     }
   };
 
+  const redeem = async () => {
+    if (!u?.id || !code.trim()) return;
+    setPromoState(null);
+    try {
+      const r = await fetch("/api/redeem-promocode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tg_id: u.id, code: code.trim() }),
+      });
+      const j = await r.json();
+      if (!j?.ok) {
+        setPromoState({ ok: false, msg: j?.error || "Промокод не принят" });
+      } else {
+        const bonus = j.bonus ?? j.amount ?? "";
+        const cur = j.currency ?? (j.isStars ? "⭐" : "₽");
+        setPromoState({ ok: true, msg: `Зачислено: ${bonus} ${cur}` });
+        setCode("");
+      }
+    } catch {
+      setPromoState({ ok: false, msg: "Ошибка сети" });
+    }
+  };
+
   return (
     <Layout title="Профиль — Reel Wallet">
-      {/* Шапка с градиентом */}
+      {/* Шапка без свечения */}
       <div className="bg-gradient-to-br from-indigo-600 via-blue-600 to-cyan-500 text-white rounded-b-3xl pb-10 pt-12">
         <div className="max-w-md mx-auto px-4">
           <div className="flex items-center gap-4">
-            {/* Аватар с градиентным ореолом */}
-            <div className="relative">
-              <div className="absolute -inset-1 rounded-full bg-gradient-to-br from-fuchsia-500 via-rose-500 to-amber-400 blur opacity-70"></div>
-              <div className="relative w-18 h-18">
-                {u?.photo_url ? (
-                  <img
-                    src={u.photo_url}
-                    alt="avatar"
-                    className="w-16 h-16 rounded-full object-cover ring-2 ring-white/40"
-                  />
-                ) : (
-                  <div className="w-16 h-16 rounded-full bg-white/20 flex items-center justify-center text-2xl">🙂</div>
-                )}
-                {/* Бейдж верификации (инста-стиль) */}
-                {isVerified && (
-                  <span
-                    title="Верифицирован"
-                    className="absolute -bottom-1 -right-1 inline-flex items-center justify-center w-6 h-6 rounded-full bg-white shadow-md"
-                  >
-                    <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-sky-500 text-white text-[12px] font-bold">
-                      ✓
-                    </span>
-                  </span>
-                )}
-              </div>
+            {/* Аватар — просто круг */}
+            <div className="w-16 h-16 rounded-full overflow-hidden ring-2 ring-white/40 bg-white/20 flex items-center justify-center">
+              {u?.photo_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={u.photo_url} alt="avatar" className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-2xl">🙂</span>
+              )}
             </div>
 
             <div className="min-w-0">
@@ -142,14 +177,12 @@ export default function Profile() {
               </div>
             </div>
 
-            {u?.username && (
-              <button
-                onClick={openTG}
-                className="ml-auto text-[11px] bg-white/20 hover:bg-white/30 transition rounded-full px-3 py-1"
-              >
-                Написать в TG
-              </button>
-            )}
+            <button
+              onClick={openSupport}
+              className="ml-auto text-[11px] bg-white/20 hover:bg-white/30 transition rounded-full px-3 py-1"
+            >
+              Поддержка
+            </button>
           </div>
 
           <div className="mt-4 text-xs opacity-90">
@@ -158,7 +191,7 @@ export default function Profile() {
         </div>
       </div>
 
-      {/* Карточка с полями профиля + верификация */}
+      {/* Карточка с полями профиля + верификация + промо */}
       <div className="max-w-md mx-auto px-4 -mt-6 space-y-6 relative z-10">
         <div className="bg-white rounded-2xl p-4 shadow-sm">
           <div className="flex items-center justify-between mb-3">
@@ -215,7 +248,51 @@ export default function Profile() {
               <div className="font-medium">{u ? (u.is_premium ? "Telegram Premium ✓" : "—") : <Skeleton className="h-4 w-24" />}</div>
             </div>
           </div>
+
+          {/* Промокод */}
+          <div className="mt-4">
+            <div className="text-[11px] text-slate-500 mb-1">Промокод</div>
+            <div className="flex gap-2">
+              <input
+                value={code}
+                onChange={(e)=>setCode(e.target.value.toUpperCase())}
+                onKeyDown={(e)=>{ if(e.key==='Enter' && !disabledRedeem) redeem(); }}
+                placeholder="Введите код"
+                className="flex-1 rounded-xl ring-1 ring-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-slate-300"
+              />
+              <button
+                onClick={redeem}
+                disabled={disabledRedeem}
+                className="rounded-xl bg-slate-900 text-white text-sm px-4 py-2 disabled:opacity-60"
+              >
+                Активировать
+              </button>
+            </div>
+            {promoState && (
+              <div className={`mt-2 text-xs ${promoState.ok ? "text-emerald-600" : "text-rose-600"}`}>
+                {promoState.msg}
+              </div>
+            )}
+          </div>
         </div>
+
+        {/* Админ-блок */}
+        {role === "admin" && (
+          <div className="bg-white rounded-2xl p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div className="font-semibold">Админка</div>
+              <span className="text-xs px-2 py-1 rounded-full bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200">role: admin</span>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+              <Link href="/admin" className="rounded-xl ring-1 ring-slate-200 px-3 py-2 text-center hover:bg-slate-50">
+                Открыть админку
+              </Link>
+              <Link href="/history" className="rounded-xl ring-1 ring-slate-200 px-3 py-2 text-center hover:bg-slate-50">
+                История заявок
+              </Link>
+            </div>
+          </div>
+        )}
 
         {!u && (
           <div className="text-[12px] text-slate-500 text-center pb-6">
