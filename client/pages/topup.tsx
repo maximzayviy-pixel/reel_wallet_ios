@@ -118,7 +118,7 @@ export default function TopUp() {
             {/* Conversion */}
             <div className="mt-3 text-xs text-slate-600">
               {rub > 0 ? (
-                <>К оплате ≈ <span className="font-medium">{rub.toFixed(2)} ₽</span></>
+                <>К зачисленю ≈ <span className="font-medium">{rub.toFixed(2)} ₽</span></>
               ) : (
                 <>Введи количество звёзд, чтобы увидеть сумму в ₽</>
               )}
