@@ -69,19 +69,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const m = data.match(/^(pay|rej):([A-Za-z0-9-]+)$/);
 
     // 1) Сразу снимаем «часики» — синхронно
-    if (TG_BOT_TOKEN) {
-      try {
-        await fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/answerCallbackQuery`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ callback_query_id: cq.id, text: '⏳ Обрабатываю...' }),
-        });
-      } catch (e) {
-        console.error('answerCallbackQuery (start) failed', e);
-      }
+    try {
+      await fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/answerCallbackQuery`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ callback_query_id: cq.id, text: '⏳ Обрабатываю...' }),
+      });
+    } catch (e) {
+      console.error('answerCallbackQuery (start) failed', e);
     }
 
-    // 2) Быстрый HTTP-ответ
+    // 2) Быстрый HTTP-ответ и выходим из хэндлера
     ok(res);
 
     if (!m) return;
@@ -99,23 +97,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           .maybeSingle();
 
         if (prErr || !pr) {
-          if (TG_BOT_TOKEN) {
-            await runQuickly(
-              fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/answerCallbackQuery`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ callback_query_id: cq.id, text: 'Заявка не найдена' }),
-              }),
-              800
-            );
-          }
+          await runQuickly(
+            fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/answerCallbackQuery`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ callback_query_id: cq.id, text: 'Заявка не найдена' }),
+            }),
+            800
+          );
           return;
         }
 
-        // === PAY ===
-        if (action === 'pay') {
-          // 1) атомарно перевести только pending -> paid
-          const { data: doneRow, error: updErr } = await supabase
+        if (action === 'pay' && pr.status === 'pending') {
+          const needStars = Math.round((pr.amount_rub || 0) * 2);
+
+          // пометить оплаченной
+          await supabase
             .from('payment_requests')
             .update({
               status: 'paid',
@@ -123,43 +120,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               paid_at: new Date().toISOString(),
               admin_id: cq.from?.id ?? null,
             })
-            .eq('id', reqId)
-            .eq('status', 'pending') // << идемпотентность
-            .select('*')
-            .maybeSingle();
+            .eq('id', reqId);
 
-          if (updErr) console.error('payment_requests update error', updErr);
-
-          // уже обработана — сообщаем и убираем кнопки
-          if (!doneRow) {
-            if (TG_BOT_TOKEN) {
-              const tasks: Promise<any>[] = [
-                fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/answerCallbackQuery`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ callback_query_id: cq.id, text: 'Ссылка уже обработана' }),
-                }),
-              ];
-              if (cq.message?.message_id) {
-                tasks.push(
-                  fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/editMessageReplyMarkup`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      chat_id: cq.message.chat.id,
-                      message_id: cq.message.message_id,
-                      reply_markup: { inline_keyboard: [] },
-                    }),
-                  })
-                );
-              }
-              await runQuickly(Promise.allSettled(tasks), 800);
-            }
-            return;
-          }
-
-          // 2) гарантированное списание через ledger (минусовые ⭐)
-          const needStars = Math.round((pr.amount_rub || 0) * 2);
+          // гарантированное списание через ledger (минусовые ⭐)
           try {
             await supabase.from(LEDGER).insert([
               {
@@ -172,9 +135,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 metadata: { payment_request_id: pr.id },
               },
             ]);
-          } catch (e: any) {
-            // если есть уникальный индекс и кто-то успел — игнор
-            if (e?.code !== '23505') console.error('ledger debit failed', e);
+          } catch (e) {
+            console.error('ledger debit failed', e);
           }
 
           // опц.: рефреш materialized view
@@ -184,105 +146,99 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             } catch {}
           }
 
-          // 3) нотификация пользователю + убрать клавиатуру + финальный ACK (быстро и параллельно)
-          if (TG_BOT_TOKEN) {
-            const tasks: Promise<any>[] = [
-              fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/answerCallbackQuery`, {
+          // уведомить пользователя
+          if (TG_BOT_TOKEN && pr.tg_id) {
+            await runQuickly(
+              fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ callback_query_id: cq.id, text: '✅ Отмечено как оплачено' }),
+                body: JSON.stringify({
+                  chat_id: pr.tg_id,
+                  text: `Оплата подтверждена ✅\nСумма: ${pr.amount_rub} ₽ (${needStars} ⭐)`,
+                }),
               }),
-            ];
-            if (pr.tg_id) {
-              tasks.push(
-                fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    chat_id: pr.tg_id,
-                    text: `Оплата подтверждена ✅\nСумма: ${pr.amount_rub} ₽ (${needStars} ⭐)`,
-                  }),
-                })
-              );
-            }
-            if (cq.message?.message_id) {
-              tasks.push(
-                fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/editMessageReplyMarkup`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    chat_id: cq.message.chat.id,
-                    message_id: cq.message.message_id,
-                    reply_markup: { inline_keyboard: [] },
-                  }),
-                })
-              );
-            }
-            await runQuickly(Promise.allSettled(tasks), 800);
+              800
+            );
           }
+
+          // убрать клавиатуру у админа
+          if (cq.message?.message_id) {
+            await runQuickly(
+              fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/editMessageReplyMarkup`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  chat_id: cq.message.chat.id,
+                  message_id: cq.message.message_id,
+                  reply_markup: { inline_keyboard: [] },
+                }),
+              }),
+              800
+            );
+          }
+
+          // финальный ACK
+          await runQuickly(
+            fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/answerCallbackQuery`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ callback_query_id: cq.id, text: '✅ Отмечено как оплачено' }),
+            }),
+            800
+          );
           return;
         }
 
-        // === REJ ===
-        if (action === 'rej') {
-          // атомарно pending -> rejected
-          const { data: rejRow } = await supabase
+        if (action === 'rej' && pr.status === 'pending') {
+          await supabase
             .from('payment_requests')
             .update({ status: 'rejected', admin_id: cq.from?.id ?? null })
-            .eq('id', reqId)
-            .eq('status', 'pending')
-            .select('*')
-            .maybeSingle();
+            .eq('id', reqId);
 
-          if (TG_BOT_TOKEN) {
-            const msgText = rejRow ? '❌ Отклонено' : 'Ссылка уже обработана';
-            const tasks: Promise<any>[] = [
-              fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/answerCallbackQuery`, {
+          if (cq.message?.message_id) {
+            await runQuickly(
+              fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/editMessageReplyMarkup`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ callback_query_id: cq.id, text: msgText }),
+                body: JSON.stringify({
+                  chat_id: cq.message.chat.id,
+                  message_id: cq.message.message_id,
+                  reply_markup: { inline_keyboard: [] },
+                }),
               }),
-            ];
-            if (cq.message?.message_id) {
-              tasks.push(
-                fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/editMessageReplyMarkup`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    chat_id: cq.message.chat.id,
-                    message_id: cq.message.message_id,
-                    reply_markup: { inline_keyboard: [] },
-                  }),
-                })
-              );
-            }
-            await runQuickly(Promise.allSettled(tasks), 800);
+              800
+            );
           }
+
+          await runQuickly(
+            fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/answerCallbackQuery`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ callback_query_id: cq.id, text: '❌ Отклонено' }),
+            }),
+            800
+          );
           return;
         }
 
-        // дефолт — повторный клик
-        if (TG_BOT_TOKEN) {
-          await runQuickly(
-            fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/answerCallbackQuery`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ callback_query_id: cq.id, text: 'Ссылка уже обработана' }),
-            }),
-            800
-          );
-        }
+        // повторный клик / уже обработано
+        await runQuickly(
+          fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/answerCallbackQuery`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ callback_query_id: cq.id, text: 'Ссылка уже обработана' }),
+          }),
+          800
+        );
       } catch (e) {
-        if (TG_BOT_TOKEN) {
-          await runQuickly(
-            fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/answerCallbackQuery`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ callback_query_id: cq.id, text: 'Ошибка обработки' }),
-            }),
-            800
-          );
-        }
+        await runQuickly(
+          fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/answerCallbackQuery`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ callback_query_id: cq.id, text: 'Ошибка обработки' }),
+          }),
+          800
+        );
       }
     })();
 
