@@ -23,7 +23,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   });
 
   const { tg_id, qr_payload, amount_rub, qr_image_b64 } = req.body as {
-    tg_id?: number;
+    tg_id?: number | string;
     qr_payload?: string;
     amount_rub?: number;
     qr_image_b64?: string;
@@ -38,7 +38,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const { data: userRow } = await supabase
       .from("users")
       .select("id,balance_stars")
-      .eq("tg_id", tg_id)
+      .eq("tg_id", String(tg_id))   // 👈 приводим к строке
       .maybeSingle();
 
     if (!userRow) {
@@ -48,11 +48,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const needStars = Math.round(amount_rub * 2);
     if (userRow.balance_stars < needStars) {
-      console.error("402 INSUFFICIENT_BALANCE", {
-        tgId: tg_id,
-        need: needStars,
-        have: userRow.balance_stars,
-      });
+      console.error("402 INSUFFICIENT_BALANCE", { tgId: tg_id, need: needStars, have: userRow.balance_stars });
       return res.status(402).json({
         ok: false,
         reason: "INSUFFICIENT_BALANCE",
@@ -70,7 +66,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     .from("payment_requests")
     .insert([
       {
-        tg_id,
+        tg_id: String(tg_id),
         user_id: tg_id,
         qr_payload,
         amount_rub,
