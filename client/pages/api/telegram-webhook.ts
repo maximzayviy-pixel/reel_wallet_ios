@@ -5,6 +5,13 @@ import { createClient } from '@supabase/supabase-js';
 export const config = { api: { bodyParser: true } };
 
 type TGUpdate = {
+  callback_query?: {
+    id: string;
+    from: { id: number; username?: string };
+    message?: { chat: { id: number }; message_id: number };
+    data?: string;
+  };
+
   message?: any;
   edited_message?: any;
   pre_checkout_query?: {
@@ -47,55 +54,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       : null;
 
   try {
-    // Handle inline admin buttons: pay:<id> / rej:<id>
-    try {
-      const token = TG_BOT_TOKEN;
-      if (update?.callback_query?.data && token && supabase) {
-        const data = update.callback_query.data as string;
-        const m = data.match(/^(pay|rej):(\d+)$/);
-        if (m) {
-          const action = m[1];
-          const id = Number(m[2]);
-          const { data: reqRow } = await supabase.from('payment_requests').select('*').eq('id', id).maybeSingle();
-          if (reqRow) {
-            if (action === 'pay' && reqRow.status === 'pending') {
-              await supabase.from('payment_requests').update({ status: 'paid', paid_amount_rub: reqRow.amount_rub, paid_at: new Date(), admin_id: update.callback_query.from.id }).eq('id', id);
-              await supabase.rpc('debit_user_balance', { p_user_id: reqRow.user_id, p_amount: reqRow.amount_rub });
-              if (reqRow.tg_id && token) {
-                await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-                  method: 'POST', headers: {'Content-Type':'application/json'},
-                  body: JSON.stringify({ chat_id: reqRow.tg_id, text: `Оплата подтверждена ✅\\nСумма: ${reqRow.amount_rub} ₽ (${Math.round(reqRow.amount_rub*2)} ⭐)` })
-                }).catch(()=>{});
-              }
-              if (update.callback_query?.message?.message_id) {
-                await fetch(`https://api.telegram.org/bot${token}/editMessageReplyMarkup`, {
-                  method: 'POST', headers: {'Content-Type':'application/json'},
-                  body: JSON.stringify({ chat_id: update.callback_query.message.chat.id, message_id: update.callback_query.message.message_id, reply_markup: { inline_keyboard: [] } })
-                }).catch(()=>{});
-              }
-              await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
-                method: 'POST', headers: {'Content-Type':'application/json'},
-                body: JSON.stringify({ callback_query_id: update.callback_query.id, text: '✅ Отмечено как оплачено' })
-              }).catch(()=>{});
-            } else if (action === 'rej' && reqRow.status === 'pending') {
-              await supabase.from('payment_requests').update({ status: 'rejected', admin_id: update.callback_query.from.id }).eq('id', id);
-              if (update.callback_query?.message?.message_id) {
-                await fetch(`https://api.telegram.org/bot${token}/editMessageReplyMarkup`, {
-                  method: 'POST', headers: {'Content-Type':'application/json'},
-                  body: JSON.stringify({ chat_id: update.callback_query.message.chat.id, message_id: update.callback_query.message.message_id, reply_markup: { inline_keyboard: [] } })
-                }).catch(()=>{});
-              }
-              await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
-                method: 'POST', headers: {'Content-Type':'application/json'},
-                body: JSON.stringify({ callback_query_id: update.callback_query.id, text: '❌ Отклонено' })
-              }).catch(()=>{});
-            }
-          }
-          return res.json({ ok: true });
-        }
-      }
-    } catch {}
-
     // 1) Подтверждаем pre_checkout_query
     if (update.pre_checkout_query && TG_BOT_TOKEN) {
       const pcq = update.pre_checkout_query;
