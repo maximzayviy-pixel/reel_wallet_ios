@@ -1,1 +1,72 @@
-obmen.tsxobmen.tsxobmen.tsx
+import Layout from "../components/Layout";
+
+export default function Browser() {
+  return (
+    <Layout title="Обмен">
+      <div className="max-w-md mx-auto p-4">
+        <div className="relative overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-100">
+          <div
+            aria-hidden
+            className="absolute inset-0 bg-[radial-gradient(1200px_400px_at_50%_-10%,#e0f2fe_0%,transparent_50%),radial-gradient(800px_300px_at_80%_120%,#ecfccb_0%,transparent_40%)] opacity-60"
+          />
+          <div className="relative p-6">
+            <div className="inline-flex items-center gap-2 rounded-full bg-amber-50 text-amber-700 ring-1 ring-amber-200 px-3 py-1 text-xs font-medium">
+              <span className="animate-pulse">🚧</span> Раздел в разработке
+            </div>
+
+            <h1 className="mt-3 text-2xl font-semibold tracking-tight text-slate-900">
+              Обмен средств скоро появится
+            </h1>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              Как только всё будет готово, раздел
+              автоматически появится у вас в приложении.
+            </p>
+
+            <div className="mt-6 flex items-center justify-center">
+              <div className="relative h-36 w-56">
+                <svg
+                  viewBox="0 0 200 120"
+                  className="h-full w-full drop-shadow-sm"
+                  role="img"
+                  aria-label="Иллюстрация: строим раздел"
+                >
+                  <defs>
+                    <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+                      <stop offset="0%" stopColor="#60a5fa" />
+                      <stop offset="100%" stopColor="#a7f3d0" />
+                    </linearGradient>
+                  </defs>
+                  <rect x="8" y="20" width="184" height="80" rx="12" fill="url(#g1)" opacity="0.25" />
+                  <g>
+                    <rect x="26" y="36" width="60" height="12" rx="6" fill="#0ea5e9" opacity="0.7" />
+                    <rect x="26" y="54" width="92" height="12" rx="6" fill="#22c55e" opacity="0.7" />
+                    <rect x="26" y="72" width="44" height="12" rx="6" fill="#f59e0b" opacity="0.7" />
+                    <circle cx="160" cy="50" r="10" fill="#0ea5e9">
+                      <animate attributeName="r" values="8;10;8" dur="1.6s" repeatCount="indefinite" />
+                    </circle>
+                    <circle cx="176" cy="66" r="10" fill="#22c55e">
+                      <animate attributeName="r" values="8;10;8" dur="1.6s" begin=".2s" repeatCount="indefinite" />
+                    </circle>
+                  </g>
+                </svg>
+              </div>
+            </div>
+
+            <div className="mt-6 space-y-2">
+              <div className="text-xs font-medium text-slate-500">Что готовим:</div>
+              <ul className="text-sm text-slate-700 space-y-1">
+                <li>• Обмен звезд на TON</li>
+                <li>• Обмен звёзд на подарки в разделе барузер!</li>
+                <li>• История и отслеживание обменов</li>
+              </ul>
+            </div>
+
+            <p className="mt-6 text-[11px] text-slate-400 text-center">
+              P.S. Если есть идеи для обменов — напишите в чат поддержки, мы учтём в приоритете.
+            </p>
+          </div>
+        </div>
+      </div>
+    </Layout>
+  );
+}
