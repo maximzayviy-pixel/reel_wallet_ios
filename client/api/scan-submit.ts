@@ -12,38 +12,48 @@ function bad(res: NextApiResponse, error: string, code = 400, extra?: any) {
   return res.status(code).json({ ok: false, error, ...extra });
 }
 
+
 async function getRubBalance(
   supabase: ReturnType<typeof createClient>,
   tgId: string
 ): Promise<{ rub: number; stars: number; ton: number }> {
   // 1) пробуем VIEW balances_by_tg (ожидаем: tg_id, stars, ton, total_rub)
-  const v = await supabase
+  const { data: vdata } = await supabase
     .from("balances_by_tg")
     .select("stars, ton, total_rub")
     .eq("tg_id", tgId)
     .maybeSingle();
 
-  if (v.data && !v.error) {
-    const stars = Number(v.data.stars || 0);
-    const ton = Number(v.data.ton || 0);
+  if (vdata) {
+    const stars = Number(vdata.stars || 0);
+    const ton = Number(vdata.ton || 0);
     const rub = Number(
-      v.data.total_rub != null ? v.data.total_rub : stars / 2 + ton * 300
+      vdata.total_rub != null ? vdata.total_rub : stars / 2 + ton * 300
     );
     return { rub, stars, ton };
   }
 
-  // 2) фоллбэк — сырая balances
-  const b = await supabase
-    .from("balances")
-    .select("stars, ton")
+  // 2) фоллбэк — найдём user_id по tg_id и посмотрим balances
+  const { data: u } = await supabase
+    .from("users")
+    .select("id")
     .eq("tg_id", tgId)
     .maybeSingle();
 
-  const stars = Number(b.data?.stars || 0);
-  const ton = Number(b.data?.ton || 0);
+  if (!u?.id) return { rub: 0, stars: 0, ton: 0 };
+
+  const { data: bdata } = await supabase
+    .from("balances")
+    .select("stars, ton")
+    .eq("user_id", u.id)
+    .maybeSingle();
+
+  const stars = Number(bdata?.stars || 0);
+  const ton = Number(bdata?.ton || 0);
   const rub = stars / 2 + ton * 300;
   return { rub, stars, ton };
 }
+
 
 function parseDataUrl(dataUrl: string): { mime: string; buffer: Buffer } | null {
   try {
@@ -55,7 +65,7 @@ function parseDataUrl(dataUrl: string): { mime: string; buffer: Buffer } | null 
   }
 }
 
-async async function uploadQrIfNeeded(
+async function uploadQrIfNeeded(
   supabase: ReturnType<typeof createClient>,
   tgId: string,
   b64?: string | null
@@ -90,8 +100,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const SUPABASE_URL =
       process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
     const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || "";
-    const TG_BOT_TOKEN = process.env.TG_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_BOT || process.env.BOT_TOKEN || "";
-    const ADMIN_TG_ID = process.env.ADMIN_TG_ID || process.env.TELEGRAM_ADMIN_CHAT || process.env.TELEGRAM_ADMIN_ID || process.env.TELEGRAM_ADMIN || "";
+    const TG_BOT_TOKEN =
+      process.env.TG_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || "";
+    const ADMIN_TG_ID = process.env.ADMIN_TG_ID || "";
 
     if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
       return bad(res, "SUPABASE_MISCONFIGURED", 500);
