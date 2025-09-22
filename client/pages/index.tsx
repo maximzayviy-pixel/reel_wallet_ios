@@ -106,7 +106,7 @@ export default function Home() {
           <div className="grid grid-cols-4 gap-3 mt-6">
             {[
               { label: "Пополнить", href: "/topup", icon: <Wallet size={18} /> },
-              { label: "Перевести", href: "/", icon: <Send size={18} /> },
+              { label: "Перевести", href: "transfer", icon: <Send size={18} /> },
               { label: "Обменять", href: "/", icon: <Shuffle size={18} /> },
               { label: "Оплатить", href: "/scan", icon: <QrCode size={18} /> },
             ].map((b, i) => (
