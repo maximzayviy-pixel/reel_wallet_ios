@@ -1,3 +1,4 @@
+// pages/history.tsx
 import Layout from "../components/Layout";
 import Skeleton from "../components/Skeleton";
 import { useEffect, useMemo, useState } from "react";
@@ -14,7 +15,7 @@ type PR = {
 
 type LRow = {
   id: string;
-  type: "p2p_send" | "p2p_recv";
+  type?: "p2p_send" | "p2p_recv" | null;
   asset_amount: number;
   amount_rub: number | null;
   created_at: string;
@@ -78,25 +79,26 @@ export default function History() {
         .order("created_at", { ascending: false })
         .limit(100);
 
-      // 2) p2p из ledger
+      // 2) p2p из ledger — берём по типу ИЛИ по наличию transfer_id
       const lq = supabase
         .from("ledger")
         .select("id,type,asset_amount,amount_rub,created_at,metadata")
         .eq("tg_id", tgId)
-        .in("type", ["p2p_send", "p2p_recv"])
+        .or("type.in.(p2p_send,p2p_recv),metadata->>transfer_id.not.is.null")
         .order("created_at", { ascending: false })
         .limit(100);
 
       const [{ data: pr }, { data: led }] = await Promise.all([prq, lq]);
 
       const sbpItems: Item[] =
-        (pr || []).map((r: any) => {
+        (pr || []).map((r: PR) => {
           const rub = Number(r.amount_rub ?? r.max_limit_rub ?? 0);
+          const st = (r.status ?? "pending") as PR["status"];
           return {
             kind: "sbp",
             id: r.id,
             created_at: r.created_at,
-            status: (r.status || "pending") as Item extends { kind: "sbp" } ? any : never,
+            status: st,
             rub,
             stars: Math.round(rub * 2),
             qr: r.qr_payload || null,
@@ -108,7 +110,9 @@ export default function History() {
           const dir: "out" | "in" = Number(r.asset_amount) < 0 ? "out" : "in";
           const stars = Math.abs(Number(r.asset_amount || 0));
           const rub = Math.abs(Number(r.amount_rub || 0));
-          const transfer_id = (r.metadata && (r.metadata as any).transfer_id) || undefined;
+          const transfer_id =
+            (r?.metadata && (r.metadata as any)?.transfer_id) || undefined;
+
           return {
             kind: "p2p",
             id: r.id,
@@ -133,26 +137,31 @@ export default function History() {
 
   useEffect(() => {
     load();
-    // realtime на таблицы
+
+    // realtime: заявки СБП
     const ch1 = supabase
       .channel("pr-changes")
-      .on("postgres_changes", { event: "*", schema: "public", table: "payment_requests" }, () =>
-        load()
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "payment_requests" },
+        () => load()
       )
       .subscribe();
 
+    // realtime: только p2p-движения в ledger
     const ch2 = supabase
       .channel("ledger-p2p-changes")
-      .on("postgres_changes", { event: "*", schema: "public", table: "ledger" }, (p) => {
-        // обновляем только если это p2p
-        if (
-          p?.new &&
-          (p.new as any)?.type &&
-          ["p2p_send", "p2p_recv"].includes((p.new as any).type)
-        ) {
-          load();
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "ledger" },
+        (p: any) => {
+          const t = p?.new?.type as string | undefined;
+          const hasTransferId = !!p?.new?.metadata?.transfer_id;
+          if (t === "p2p_send" || t === "p2p_recv" || hasTransferId) {
+            load();
+          }
         }
-      })
+      )
       .subscribe();
 
     return () => {
@@ -164,13 +173,10 @@ export default function History() {
 
   const openReceipt = async (it: Item) => {
     if (it.kind === "sbp") {
-      setModal({
-        type: "sbp",
-        data: it,
-      });
+      setModal({ type: "sbp", data: it });
       return;
     }
-    // P2P — дотягиваем контрагента и детали
+    // P2P — дотягиваем контрагента и детали (если есть transfer_id)
     try {
       const q = it.transfer_id
         ? `/api/transfer-info?transfer_id=${encodeURIComponent(it.transfer_id)}`
