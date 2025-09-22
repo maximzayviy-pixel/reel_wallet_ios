@@ -41,7 +41,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   console.log("scan-submit lookup", tg_id, typeof tg_id);
 
-  // --- Balance validation ---
+  // --- 1) Получаем UUID пользователя по tg_id ---
+  const { data: userRow, error: userErr } = await supabase
+    .from("users")
+    .select("id")
+    .eq("tg_id", tg_id)
+    .maybeSingle();
+
+  if (userErr) {
+    console.error("user lookup error", userErr);
+    return res.status(500).json({ ok: false, error: userErr.message });
+  }
+
+  if (!userRow) {
+    console.error("402 NO_USER", { tgId: tg_id });
+    return res.status(402).json({ ok: false, reason: "NO_USER" });
+  }
+
+  const userId = userRow.id; // UUID
+
+  // --- 2) Проверка баланса ---
   try {
     const { data: balRow, error: balErr } = await supabase
       .from("balances_by_tg")
@@ -54,17 +73,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (!balRow) {
-      console.error("402 NO_USER", { tgId: tg_id });
       return res.status(402).json({ ok: false, reason: "NO_USER" });
     }
 
     const needStars = Math.round(amount_rub * 2);
     if (balRow.stars < needStars) {
-      console.error("402 INSUFFICIENT_BALANCE", {
-        tgId: tg_id,
-        need: needStars,
-        have: balRow.stars,
-      });
       return res.status(402).json({
         ok: false,
         reason: "INSUFFICIENT_BALANCE",
@@ -77,13 +90,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
   // --- End balance validation ---
 
-  // 3) Запишем заявку
+  // --- 3) Запишем заявку ---
   const { data: ins, error: insErr } = await supabase
     .from("payment_requests")
     .insert([
       {
         tg_id,
-        user_id: tg_id,
+        user_id: userId, // 👈 правильный UUID
         qr_payload,
         amount_rub,
         status: "pending",
@@ -97,7 +110,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(500).json({ ok: false, error: insErr.message });
   }
 
-  // 4) Оповестим админа + inline-кнопки
+  // --- 4) Оповестим админа + inline-кнопки ---
   const TG_BOT_TOKEN =
     process.env.TG_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || "";
   const ADMIN_TG_ID =
