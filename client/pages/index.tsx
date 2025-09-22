@@ -136,7 +136,7 @@ export default function Home() {
         {/* список активов */}
         {[
           {
-            name: "Звёзды Telegram (⭐)",
+            name: "Звёзды Telegram",
             amount: stars,
             sub: `${(stars / 2).toFixed(2)} ₽`,
             icon: "⭐",
