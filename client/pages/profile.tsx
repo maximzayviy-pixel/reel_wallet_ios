@@ -36,7 +36,6 @@ export default function Profile() {
   const [promoState, setPromoState] = useState<null | { ok: boolean; msg: string }>(null);
   const disabledRedeem = useMemo(() => !code.trim() || !u?.id, [code, u?.id]);
 
-  // Подтягиваем TG-профиль + апсертим в БД
   useEffect(() => {
     let tries = 0;
     const t = setInterval(() => {
@@ -60,7 +59,6 @@ export default function Profile() {
             }),
           }).catch(() => {});
 
-          // верификация
           fetch("/api/verify-status", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -70,14 +68,17 @@ export default function Profile() {
             .then(j => setIsVerified(!!j?.verified))
             .catch(()=>{});
 
-          // роль из БД
+          // 👇 правка тут
           supabase
             .from("users")
             .select("role")
             .eq("tg_id", user.id)
             .maybeSingle()
-            .then(({ data }) => setRole((data as RoleRow)?.role || "user"))
-            .catch(()=>{});
+            .then(({ data, error }) => {
+              if (!error) setRole((data as RoleRow)?.role || "user");
+            });
+          // ☝️ без .catch
+
         } else if (tries > 60) {
           clearInterval(t);
         }
@@ -112,7 +113,6 @@ export default function Profile() {
 
       if (!j.ok) throw new Error(j.error || "INVOICE_FAILED");
 
-      // разные ключи на всякий случай
       const link = j.link || j.invoice_link || j.url;
       if (!link) throw new Error("INVOICE_LINK_EMPTY");
 
@@ -151,11 +151,9 @@ export default function Profile() {
 
   return (
     <Layout title="Профиль — Reel Wallet">
-      {/* Шапка без свечения */}
       <div className="bg-gradient-to-br from-indigo-600 via-blue-600 to-cyan-500 text-white rounded-b-3xl pb-10 pt-12">
         <div className="max-w-md mx-auto px-4">
           <div className="flex items-center gap-4">
-            {/* Аватар — просто круг */}
             <div className="w-16 h-16 rounded-full overflow-hidden ring-2 ring-white/40 bg-white/20 flex items-center justify-center">
               {u?.photo_url ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -191,7 +189,6 @@ export default function Profile() {
         </div>
       </div>
 
-      {/* Карточка с полями профиля + верификация + промо */}
       <div className="max-w-md mx-auto px-4 -mt-6 space-y-6 relative z-10">
         <div className="bg-white rounded-2xl p-4 shadow-sm">
           <div className="flex items-center justify-between mb-3">
