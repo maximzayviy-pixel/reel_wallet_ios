@@ -127,23 +127,48 @@ export default function Home() {
           <span className="bg-white text-slate-900 rounded-full px-3 py-1 text-sm inline-block">Открыть канал</span>
         </a>
 
-        {[
-          { name: "Звёзды Telegram (⭐)", amount: stars, sub: `${(stars / 2).toFixed(2)} ₽`, icon: "⭐" },
-          { name: "TON (ВРЕМЕННО ОТКЛЮЧЕН) (🔷)", amount: ton, sub: `${(ton * 300).toFixed(2)} ₽`, icon: "🔷" },
-        ].map((a, i) => (
-          <div key={i} className="bg-white rounded-2xl p-4 shadow-sm flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-xl">{a.icon}</div>
-            <div className="flex-1">
-              <div className="font-semibold">{a.name}</div>
-              <div className="text-xs text-slate-500">{a.sub}</div>
-            </div>
-            <div className="text-right">
-              <div className="font-semibold">{a.amount}</div>
-              <div className="text-xs text-slate-500"></div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </Layout>
-  );
-}
+        {/* список активов */}
+{[
+  {
+    name: "Звёзды Telegram (⭐)",
+    amount: stars,
+    sub: `${(stars / 2).toFixed(2)} ₽`,
+    icon: "⭐",
+    dim: false,
+  },
+  {
+    name: "TON СКОРО!",
+    amount: ton,
+    sub: "—", // временно без рублёвого эквивалента
+    icon: (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src="https://ton.org/download/ton_symbol.png"
+        alt="TON"
+        className="w-5 h-5"
+      />
+    ),
+    dim: true, // подсветим как «неактивно»
+  },
+].map((a, i) => (
+  <div
+    key={i}
+    className={
+      "bg-white rounded-2xl p-4 shadow-sm flex items-center gap-3 " +
+      (a.dim ? "opacity-50" : "")
+    }
+  >
+    <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-xl">
+      {a.icon}
+    </div>
+    <div className="flex-1">
+      <div className="font-semibold">{a.name}</div>
+      <div className="text-xs text-slate-500">{a.sub}</div>
+    </div>
+    <div className="text-right">
+      <div className="font-semibold">{a.amount}</div>
+      <div className="text-xs text-slate-500"></div>
+    </div>
+  </div>
+))}
+
