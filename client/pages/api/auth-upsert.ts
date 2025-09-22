@@ -33,23 +33,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .from("users")
       .upsert(
         {
-          tg_id, // bigint
+          tg_id: String(tg_id), // 👈 приводим к строке
           username: username || null,
           first_name: first_name || null,
           last_name: last_name || null,
           role: "user",
         },
-        { onConflict: "tg_id" } // важно: уникальный индекс должен существовать
+        { onConflict: "tg_id" }
       )
-      .select()
-      .single();
+      .select();
+
+    console.log("auth-upsert result", { data, error });
 
     if (error) {
       console.error("auth-upsert error", error);
       return res.status(500).json({ ok: false, error: error.message });
     }
 
-    return res.json({ ok: true, user: data });
+    return res.json({ ok: true, user: data?.[0] || null });
   } catch (e: any) {
     console.error("auth-upsert exception", e);
     return res.status(500).json({ ok: false, error: String(e) });
