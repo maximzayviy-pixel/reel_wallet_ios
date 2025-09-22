@@ -8,7 +8,7 @@ import { createClient } from "@supabase/supabase-js";
 type Req = {
   id: string;
   tg_id: number | null;
-  status: "new" | "paid" | "rejected" | "pending";
+  status: "new" | "pending" | "paid" | "rejected";
   amount_rub: number | null;
   max_limit_rub: number | null;
   created_at: string;
@@ -34,33 +34,61 @@ const statusMeta: Record<
   rejected: { label: "Отклонено",      className: "bg-rose-50 text-rose-700 ring-rose-200", emoji: "❌" },
 };
 
+function detectTgId(): number | null {
+  try {
+    // 1) Telegram WebApp
+    const fromTg =
+      typeof window !== "undefined" &&
+      (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.id;
+    if (fromTg) return Number(fromTg);
+
+    // 2) localStorage (оба ключа на всякий случай)
+    const ls1 = typeof window !== "undefined" ? localStorage.getItem("tg_id") : null;
+    const ls2 = typeof window !== "undefined" ? localStorage.getItem("user_id") : null;
+    if (ls1 && /^\d+$/.test(ls1)) return Number(ls1);
+    if (ls2 && /^\d+$/.test(ls2)) return Number(ls2);
+
+    // 3) query (?tg_id= / ?tg=)
+    if (typeof window !== "undefined") {
+      const u = new URL(window.location.href);
+      const q1 = u.searchParams.get("tg_id");
+      const q2 = u.searchParams.get("tg");
+      if (q1 && /^\d+$/.test(q1)) return Number(q1);
+      if (q2 && /^\d+$/.test(q2)) return Number(q2);
+    }
+  } catch {}
+  return null;
+}
+
 export default function History() {
   const [rows, setRows] = useState<Req[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // читаем tg_id из Telegram WebApp / localStorage (как у тебя)
-  const userId = useMemo(() => {
-    const fromTg =
-      typeof window !== "undefined" &&
-      (window as any).Telegram?.WebApp?.initDataUnsafe?.user?.id;
-    const fromLS = typeof window !== "undefined" && localStorage.getItem("user_id");
-    return (fromTg ?? fromLS ? Number(fromTg ?? fromLS) : null) as number | null;
-  }, []);
+  const userId = useMemo(detectTgId, []);
 
   useEffect(() => {
-    if (!userId) { setLoading(false); return; }
-
     let mounted = true;
 
     const load = async () => {
       try {
-        const { data, error } = await supabase
+        // берём 100 последних; если знаем tg_id — фильтруем на запросе, иначе отфильтруем на клиенте
+        const q = supabase
           .from("payment_requests")
           .select("id,tg_id,status,amount_rub,max_limit_rub,created_at,paid_at")
-          .eq("tg_id", userId)                    // ← берём только заявки юзера
           .order("created_at", { ascending: false })
           .limit(100);
-        if (!error && mounted && data) setRows(data as any);
+
+        const { data, error } = userId ? await q.eq("tg_id", userId) : await q;
+        if (error) {
+          console.warn("history load error:", error);
+          return;
+        }
+        let list = (data || []) as Req[];
+
+        // запасной фильтр по tg_id на клиенте, если он известен
+        if (userId) list = list.filter((r) => Number(r.tg_id) === Number(userId));
+
+        if (mounted) setRows(list);
       } finally {
         if (mounted) setLoading(false);
       }
@@ -68,12 +96,14 @@ export default function History() {
 
     load();
 
-    // Realtime только по этому пользователю — быстрее и чище
+    // Realtime: если знаем tg_id — слушаем только его; иначе общий канал
     const ch = supabase
-      .channel(`pr-list-${userId}`)
+      .channel(`pr-list-${userId ?? "all"}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "payment_requests", filter: `tg_id=eq.${userId}` },
+        userId
+          ? { event: "*", schema: "public", table: "payment_requests", filter: `tg_id=eq.${userId}` }
+          : { event: "*", schema: "public", table: "payment_requests" },
         () => load()
       )
       .subscribe();
