@@ -22,7 +22,8 @@ type TGUpdate = {
   };
 };
 
-const ok = (res: NextApiResponse, body: any = { ok: true }) => res.status(200).json(body);
+const ok = (res: NextApiResponse, body: any = { ok: true }) =>
+  res.status(200).json(body);
 
 const runQuickly = <T,>(p: Promise<T>, ms = 800) =>
   Promise.race([p, new Promise<T | undefined>(r => setTimeout(() => r(undefined as any), ms))]);
@@ -41,17 +42,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
   }
 
-  const TG_BOT_TOKEN = process.env.TG_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || '';
-  const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+  const TG_BOT_TOKEN =
+    process.env.TG_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || '';
+  const SUPABASE_URL =
+    process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '';
   const SUPABASE_SERVICE_KEY =
-    process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+    process.env.SUPABASE_SERVICE_KEY ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    '';
   const LEDGER = process.env.TABLE_LEDGER || 'ledger';
   const REFRESH_BALANCES_RPC = process.env.RPC_REFRESH_BALANCES || ''; // опционально
 
   const update = (req.body || {}) as TGUpdate;
   const supabase =
     SUPABASE_URL && SUPABASE_SERVICE_KEY
-      ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, { auth: { persistSession: false } })
+      ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
+          auth: { persistSession: false },
+        })
       : null;
 
   // ---------- INLINE-КНОПКИ (✅/❌) ----------
@@ -101,11 +108,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           return;
         }
 
-        if (action === 'pay') {
+        if (action === 'pay' && pr.status === 'pending') {
           const needStars = Math.round((pr.amount_rub || 0) * 2);
 
-          // пометить оплаченной — атомарно только если была pending/new
-          const { data: doneRow, error: updErr } = await supabase
+          // пометить оплаченной
+          await supabase
             .from('payment_requests')
             .update({
               status: 'paid',
@@ -113,39 +120,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               paid_at: new Date().toISOString(),
               admin_id: cq.from?.id ?? null,
             })
-            .eq('id', reqId)
-            .in('status', ['pending', 'new'])
-            .select('*')
-            .maybeSingle();
-
-          if (updErr) console.error('payment_requests update error', updErr);
-
-          if (!doneRow) {
-            // повторный клик / уже обработана
-            await runQuickly(
-              fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/answerCallbackQuery`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ callback_query_id: cq.id, text: 'Ссылка уже обработана' }),
-              }),
-              800
-            );
-            if (cq.message?.message_id) {
-              await runQuickly(
-                fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/editMessageReplyMarkup`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    chat_id: cq.message.chat.id,
-                    message_id: cq.message.message_id,
-                    reply_markup: { inline_keyboard: [] },
-                  }),
-                }),
-                800
-              );
-            }
-            return;
-          }
+            .eq('id', reqId);
 
           // гарантированное списание через ledger (минусовые ⭐)
           try {
@@ -160,8 +135,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 metadata: { payment_request_id: pr.id },
               },
             ]);
-          } catch (e: any) {
-            if (e?.code !== '23505') console.error('ledger debit failed', e);
+          } catch (e) {
+            console.error('ledger debit failed', e);
           }
 
           // опц.: рефреш materialized view
@@ -214,14 +189,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           return;
         }
 
-        if (action === 'rej') {
-          const { data: rejRow } = await supabase
+        if (action === 'rej' && pr.status === 'pending') {
+          await supabase
             .from('payment_requests')
             .update({ status: 'rejected', admin_id: cq.from?.id ?? null })
-            .eq('id', reqId)
-            .in('status', ['pending', 'new'])
-            .select('*')
-            .maybeSingle();
+            .eq('id', reqId);
 
           if (cq.message?.message_id) {
             await runQuickly(
@@ -242,10 +214,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/answerCallbackQuery`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                callback_query_id: cq.id,
-                text: rejRow ? '❌ Отклонено' : 'Ссылка уже обработана',
-              }),
+              body: JSON.stringify({ callback_query_id: cq.id, text: '❌ Отклонено' }),
             }),
             800
           );
@@ -298,33 +267,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const sp = msg?.successful_payment;
     if (sp && supabase) {
       const fromId = Number(msg?.from?.id || 0);
-      const currency = sp.currency; // обычно 'XTR'
+      const currency = sp.currency;               // обычно 'XTR'
       const total = Number(sp.total_amount || 0); // для Stars — это кол-во звёзд
       if (fromId && currency === 'XTR' && total > 0) {
         const stars = total;
-        const amountRub = stars / 2; // курс 2⭐ = 1₽
+        const amountRub = stars / 2;  // курс 2⭐ = 1₽
         const rate = 0.5;
 
-        await supabase.from(LEDGER).insert([
-          {
-            tg_id: fromId,
-            type: 'stars_topup',
-            asset_amount: stars,
-            amount_rub: amountRub,
-            rate_used: rate,
-            status: 'ok',
-            metadata: sp,
-          },
-        ]);
+        await supabase.from(LEDGER).insert([{
+          tg_id: fromId,
+          type: 'stars_topup',
+          asset_amount: stars,
+          amount_rub: amountRub,
+          rate_used: rate,
+          status: 'ok',
+          metadata: sp,
+        }]);
 
         try {
-          await supabase.from('webhook_logs').insert([
-            {
-              kind: 'successful_payment',
-              tg_id: fromId,
-              payload: sp,
-            },
-          ]);
+          await supabase.from('webhook_logs').insert([{
+            kind: 'successful_payment',
+            tg_id: fromId,
+            payload: sp
+          }]);
         } catch {}
 
         if (TG_BOT_TOKEN) {
