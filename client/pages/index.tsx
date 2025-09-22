@@ -1,3 +1,4 @@
+// pages/index.tsx
 import Skeleton from '../components/Skeleton';
 import Layout from "../components/Layout";
 import { Wallet, Send, Shuffle, QrCode } from "lucide-react";
@@ -51,9 +52,8 @@ export default function Home() {
 
     fetchBalance();
 
-    // подписка на закрытие инвойса (оплата звёздами в Mini App)
+    // подписка на закрытие инвойса
     const onInvoiceClosed = (data: any) => {
-      // Telegram шлёт { status: "paid" | "failed" | "cancelled", invoiceSlug?: string }
       if (data?.status === "paid") {
         fetchBalance();
       }
@@ -67,7 +67,7 @@ export default function Home() {
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", fetchBalance);
 
-    // лёгкий пуллинг, если Телеграм не прислал ивент (редко бывает)
+    // лёгкий пуллинг
     pollingRef.current = setInterval(fetchBalance, 15000);
 
     return () => {
@@ -87,6 +87,7 @@ export default function Home() {
         <div className="max-w-md mx-auto px-4">
           <div className="flex items-center gap-3 mb-4">
             {user?.photo_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
               <img src={user.photo_url} className="w-10 h-10 rounded-full object-cover" />
             ) : (
               <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">🙂</div>
@@ -121,54 +122,62 @@ export default function Home() {
       </div>
 
       <div className="max-w-md mx-auto px-4 mt-4 space-y-4">
-        <a href="https://t.me/reelwallet" target="_blank" rel="noreferrer" className="block rounded-3xl bg-gradient-to-r from-blue-500 to-indigo-600 p-5 text-white">
+        <a
+          href="https://t.me/reelwallet"
+          target="_blank"
+          rel="noreferrer"
+          className="block rounded-3xl bg-gradient-to-r from-blue-500 to-indigo-600 p-5 text-white"
+        >
           <div className="text-lg font-semibold">Подписывайся на наш Telegram-канал</div>
           <div className="text-xs opacity-90 mb-2">@reelwallet</div>
           <span className="bg-white text-slate-900 rounded-full px-3 py-1 text-sm inline-block">Открыть канал</span>
         </a>
 
         {/* список активов */}
-{[
-  {
-    name: "Звёзды Telegram (⭐)",
-    amount: stars,
-    sub: `${(stars / 2).toFixed(2)} ₽`,
-    icon: "⭐",
-    dim: false,
-  },
-  {
-    name: "TON СКОРО!",
-    amount: ton,
-    sub: "—", // временно без рублёвого эквивалента
-    icon: (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src="https://ton.org/download/ton_symbol.png"
-        alt="TON"
-        className="w-5 h-5"
-      />
-    ),
-    dim: true, // подсветим как «неактивно»
-  },
-].map((a, i) => (
-  <div
-    key={i}
-    className={
-      "bg-white rounded-2xl p-4 shadow-sm flex items-center gap-3 " +
-      (a.dim ? "opacity-50" : "")
-    }
-  >
-    <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-xl">
-      {a.icon}
-    </div>
-    <div className="flex-1">
-      <div className="font-semibold">{a.name}</div>
-      <div className="text-xs text-slate-500">{a.sub}</div>
-    </div>
-    <div className="text-right">
-      <div className="font-semibold">{a.amount}</div>
-      <div className="text-xs text-slate-500"></div>
-    </div>
-  </div>
-))}
-
+        {[
+          {
+            name: "Звёзды Telegram (⭐)",
+            amount: stars,
+            sub: `${(stars / 2).toFixed(2)} ₽`,
+            icon: "⭐",
+            dim: false,
+          },
+          {
+            name: "TON СКОРО!",
+            amount: ton,
+            sub: "—",
+            icon: (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src="https://ton.org/download/ton_symbol.png"
+                alt="TON"
+                className="w-5 h-5"
+              />
+            ),
+            dim: true,
+          },
+        ].map((a, i) => (
+          <div
+            key={i}
+            className={
+              "bg-white rounded-2xl p-4 shadow-sm flex items-center gap-3 " +
+              (a.dim ? "opacity-50" : "")
+            }
+          >
+            <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-xl">
+              {a.icon}
+            </div>
+            <div className="flex-1">
+              <div className="font-semibold">{a.name}</div>
+              <div className="text-xs text-slate-500">{a.sub}</div>
+            </div>
+            <div className="text-right">
+              <div className="font-semibold">{a.amount}</div>
+              <div className="text-xs text-slate-500"></div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </Layout>
+  );
+}
