@@ -4,7 +4,6 @@ import { createClient } from "@supabase/supabase-js";
 
 export const config = { api: { bodyParser: { sizeLimit: "6mb" } } };
 
-// ---- helpers ---------------------------------------------------------------
 function ok(res: NextApiResponse, body: any = { ok: true }) {
   return res.status(200).json(body);
 }
@@ -12,7 +11,7 @@ function bad(res: NextApiResponse, error: string, code = 400, extra?: any) {
   return res.status(code).json({ ok: false, error, ...extra });
 }
 
-// Keep supabase arg as any to avoid generic mismatches at build time
+// supabase: any — избегаем конфликтов generic-типов на Vercel
 async function getRubBalance(
   supabase: any,
   tgId: string
@@ -22,7 +21,7 @@ async function getRubBalance(
     .from("balances_by_tg")
     .select("stars, ton, total_rub")
     .eq("tg_id", tgId)
-    .maybeSingle<any>();
+    .maybeSingle();
   if (vdata) {
     const stars = Number(vdata.stars ?? 0);
     const ton = Number(vdata.ton ?? 0);
@@ -37,14 +36,14 @@ async function getRubBalance(
     .from("users")
     .select("id")
     .eq("tg_id", tgId)
-    .maybeSingle<any>();
+    .maybeSingle();
   if (!u?.id) return { rub: 0, stars: 0, ton: 0 };
 
   const { data: bdata } = await supabase
     .from("balances")
     .select("stars, ton")
     .eq("user_id", u.id)
-    .maybeSingle<any>();
+    .maybeSingle();
 
   const stars = Number(bdata?.stars ?? 0);
   const ton = Number(bdata?.ton ?? 0);
@@ -62,7 +61,6 @@ function parseDataUrl(dataUrl: string): { mime: string; buffer: Buffer } | null 
   }
 }
 
-// Keep supabase arg as any to avoid generic mismatches at build time
 async function uploadQrIfNeeded(
   supabase: any,
   tgId: string,
@@ -94,7 +92,6 @@ async function uploadQrIfNeeded(
   return pub?.publicUrl || null;
 }
 
-// ---- handler ---------------------------------------------------------------
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === "GET") return ok(res, { ok: true });
   if (req.method !== "POST") return ok(res);
@@ -119,7 +116,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
       return bad(res, "SUPABASE_MISCONFIGURED", 500);
     }
-
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
     const body = (req.body || {}) as any;
@@ -134,19 +130,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return bad(res, "tg_id, qr_payload, amount_rub are required", 400);
     }
 
-    // 1) balance
     const { rub: totalRub } = await getRubBalance(supabase as any, tgId);
     if (totalRub < amountRub) {
-      return bad(res, "INSUFFICIENT_FUNDS", 402, {
-        totalRub,
-        amountRub
-      });
+      return bad(res, "INSUFFICIENT_FUNDS", 402, { totalRub, amountRub });
     }
 
-    // 2) store QR
     const imageUrl = await uploadQrIfNeeded(supabase as any, tgId, qr_image_b64);
 
-    // 3) create request
     const { data: ins, error: insErr } = await supabase
       .from("payment_requests")
       .insert({
@@ -159,13 +149,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         admin_note: null
       })
       .select("*")
-      .maybeSingle<any>();
+      .maybeSingle();
 
     if (insErr || !ins) {
       return bad(res, "DB_INSERT_FAILED", 500, { error: insErr });
     }
 
-    // 4) notify admin (best-effort)
     let admin_notified = false;
     try {
       if (TG_BOT_TOKEN && ADMIN_TG_ID) {
