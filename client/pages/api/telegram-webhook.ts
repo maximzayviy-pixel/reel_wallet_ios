@@ -36,7 +36,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const requiredSecret = process.env.TG_WEBHOOK_SECRET;
   const gotSecret = req.headers['x-telegram-bot-api-secret-token'] as string | undefined;
   if (requiredSecret && gotSecret !== requiredSecret) {
-    console.warn('telegram-webhook: secret mismatch', { haveEnv: !!requiredSecret, gotHeader: !!gotSecret });
+    console.warn('telegram-webhook: secret mismatch', {
+      haveEnv: !!requiredSecret,
+      gotHeader: !!gotSecret,
+    });
   }
 
   const TG_BOT_TOKEN =
@@ -46,7 +49,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const SUPABASE_SERVICE_KEY =
     process.env.SUPABASE_SERVICE_KEY ||
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_SERVICE_KEY ||
     '';
   const LEDGER = process.env.TABLE_LEDGER || 'ledger';
   const REFRESH_BALANCES_RPC = process.env.RPC_REFRESH_BALANCES || ''; // опционально
@@ -54,7 +56,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const update = (req.body || {}) as TGUpdate;
   const supabase =
     SUPABASE_URL && SUPABASE_SERVICE_KEY
-      ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, { auth: { persistSession: false } })
+      ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
+          auth: { persistSession: false },
+        })
       : null;
 
   // ---------- INLINE-КНОПКИ (✅/❌) ----------
@@ -64,32 +68,34 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // поддерживаем UUID и числа
     const m = data.match(/^(pay|rej):([A-Za-z0-9-]+)$/);
 
-    // 1) Сразу снимаем «часики» — синхронно, до ответа HTTP
+    // 1) Сразу снимаем «часики» — синхронно
     try {
-      const r = await fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/answerCallbackQuery`, {
+      await fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/answerCallbackQuery`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ callback_query_id: cq.id, text: '⏳ Обрабатываю...' }),
       });
-      await r.json().catch(() => ({}));
-    } catch {}
+    } catch (e) {
+      console.error('answerCallbackQuery (start) failed', e);
+    }
 
-    // отдаём 200 HTTP мгновенно
+    // 2) Быстрый HTTP-ответ и выходим из хэндлера
     ok(res);
 
     if (!m) return;
 
-    const [, action, idStr] = m;
-    const reqId = idStr; // строка (UUID или число)
+    const action = m[1] as 'pay' | 'rej';
+    const reqId = m[2]; // строка (UUID или число)
 
+    // 3) Основная работа — в фоне
     (async () => {
       try {
-        // найдём заявку
         const { data: pr, error: prErr } = await supabase
           .from('payment_requests')
           .select('*')
           .eq('id', reqId)
           .maybeSingle();
+
         if (prErr || !pr) {
           await runQuickly(
             fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/answerCallbackQuery`, {
@@ -105,7 +111,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         if (action === 'pay' && pr.status === 'pending') {
           const needStars = Math.round((pr.amount_rub || 0) * 2);
 
-          // 2) пометить оплаченной
+          // пометить оплаченной
           await supabase
             .from('payment_requests')
             .update({
@@ -116,13 +122,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             })
             .eq('id', reqId);
 
-          // 3) ГАРАНТИРОВАННОЕ списание через ledger (минусовые ⭐)
+          // гарантированное списание через ledger (минусовые ⭐)
           try {
             await supabase.from(LEDGER).insert([
               {
                 tg_id: pr.tg_id,
-                type: 'sbp_payment',         // убедись, что balances_by_tg не фильтрует этот type
-                asset_amount: -needStars,    // ⭐ со знаком «минус»
+                type: 'sbp_payment',
+                asset_amount: -needStars,
                 amount_rub: -(pr.amount_rub || 0),
                 rate_used: 0.5,
                 status: 'ok',
@@ -133,14 +139,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             console.error('ledger debit failed', e);
           }
 
-          // 3.1 (опционально) рефреш материализованной вьюхи
+          // опц.: рефреш materialized view
           if (REFRESH_BALANCES_RPC) {
             try {
               await supabase.rpc(REFRESH_BALANCES_RPC as any);
             } catch {}
           }
 
-          // 4) уведомить пользователя
+          // уведомить пользователя
           if (TG_BOT_TOKEN && pr.tg_id) {
             await runQuickly(
               fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage`, {
@@ -155,7 +161,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             );
           }
 
-          // 5) убрать клавиатуру у админа
+          // убрать клавиатуру у админа
           if (cq.message?.message_id) {
             await runQuickly(
               fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/editMessageReplyMarkup`, {
@@ -215,7 +221,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           return;
         }
 
-        // уже обработано / повторный клик
+        // повторный клик / уже обработано
         await runQuickly(
           fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/answerCallbackQuery`, {
             method: 'POST',
@@ -234,15 +240,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           800
         );
       }
-    }
+    })();
 
-    // не дублируем ok(res) — он уже отправлен выше
+    // мы уже отправили HTTP-ответ выше
     return;
   }
 
-  // ---------- ПОПОЛНЕНИЯ STARS (как было) ----------
-  // отдаём 200 HTTP сразу для остальных апдейтов
-  ok(res);
+  // ---------- ПРОЧИЕ АПДЕЙТЫ (успешные платежи Stars) ----------
+  ok(res); // быстрый ответ
 
   try {
     // 1) подтверждение pre_checkout_query
