@@ -33,22 +33,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ ok: false, error: "tg_id, qr_payload, amount_rub are required" });
   }
 
+  const tgIdStr = String(tg_id);
+
   // --- Balance validation ---
   try {
     const { data: userRow } = await supabase
       .from("users")
       .select("id,balance_stars")
-      .eq("tg_id", String(tg_id))   // 👈 приводим к строке
+      .eq("tg_id", tgIdStr)   // 👈 теперь строкой
       .maybeSingle();
 
     if (!userRow) {
-      console.error("402 NO_USER", { tgId: tg_id });
+      console.error("402 NO_USER", { tgId: tgIdStr });
       return res.status(402).json({ ok: false, reason: "NO_USER" });
     }
 
     const needStars = Math.round(amount_rub * 2);
     if (userRow.balance_stars < needStars) {
-      console.error("402 INSUFFICIENT_BALANCE", { tgId: tg_id, need: needStars, have: userRow.balance_stars });
+      console.error("402 INSUFFICIENT_BALANCE", {
+        tgId: tgIdStr,
+        need: needStars,
+        have: userRow.balance_stars,
+      });
       return res.status(402).json({
         ok: false,
         reason: "INSUFFICIENT_BALANCE",
@@ -66,8 +72,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     .from("payment_requests")
     .insert([
       {
-        tg_id: String(tg_id),
-        user_id: tg_id,
+        tg_id: tgIdStr,
+        user_id: tgIdStr,
         qr_payload,
         amount_rub,
         status: "pending",
@@ -89,7 +95,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (TG_BOT_TOKEN && ADMIN_TG_ID) {
     const caption =
       `<b>#${ins.id}</b>\n` +
-      `Запрос оплаты от <code>${tg_id}</code>\n` +
+      `Запрос оплаты от <code>${tgIdStr}</code>\n` +
       `Сумма: <b>${amount_rub} ₽</b> (${Math.round(amount_rub * 2)} ⭐)\n\n` +
       (qr_payload?.length ? `<code>${qr_payload.slice(0, 3500)}</code>` : "");
 
@@ -130,7 +136,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
       const j = await sent.json().catch(() => ({}));
       adminNotified = !!j?.ok;
-    } catch {
+    } catch (e) {
+      console.error("admin notify failed", e);
       adminNotified = false;
     }
   }
