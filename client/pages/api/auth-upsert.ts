@@ -4,35 +4,54 @@ import { createClient } from "@supabase/supabase-js";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") {
-    return res.status(405).json({ ok: false });
+    return res.status(405).json({ ok: false, error: "METHOD_NOT_ALLOWED" });
   }
 
-  const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-  const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, { auth: { persistSession: false } });
+  const SUPABASE_URL =
+    process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+  const SUPABASE_SERVICE_KEY =
+    process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 
-  const { tg_id, username, first_name, last_name } = req.body;
-  if (!tg_id) return res.status(400).json({ ok: false, error: "tg_id required" });
-
-  const { data, error } = await supabase
-    .from("users")
-    .upsert(
-      {
-        tg_id,
-        username,
-        first_name,
-        last_name,
-        role: "user",
-      },
-      { onConflict: "tg_id" }   // 🔑 ключевая правка
-    )
-    .select()
-    .single();
-
-  if (error) {
-    console.error("auth-upsert error", error);
-    return res.status(500).json({ ok: false, error: error.message });
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+    console.error("auth-upsert: missing Supabase env");
+    return res.status(500).json({ ok: false, error: "no_supabase_env" });
   }
 
-  return res.json({ ok: true, user: data });
+  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
+    auth: { persistSession: false },
+  });
+
+  const { tg_id, username, first_name, last_name } = req.body || {};
+  console.log("auth-upsert req.body", req.body);
+
+  if (!tg_id) {
+    return res.status(400).json({ ok: false, error: "tg_id required" });
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from("users")
+      .upsert(
+        {
+          tg_id, // bigint
+          username: username || null,
+          first_name: first_name || null,
+          last_name: last_name || null,
+          role: "user",
+        },
+        { onConflict: "tg_id" } // важно: уникальный индекс должен существовать
+      )
+      .select()
+      .single();
+
+    if (error) {
+      console.error("auth-upsert error", error);
+      return res.status(500).json({ ok: false, error: error.message });
+    }
+
+    return res.json({ ok: true, user: data });
+  } catch (e: any) {
+    console.error("auth-upsert exception", e);
+    return res.status(500).json({ ok: false, error: String(e) });
+  }
 }
