@@ -4,27 +4,25 @@ import { useEffect, useRef, useState } from "react";
 import { BrowserMultiFormatReader, IScannerControls } from "@zxing/browser";
 import { parseEMVQR, parseSBPLink } from "../lib/emv";
 
-type DetectedPayload = {
-  raw?: string;
-  qr?: string;
-  info?: {
-    merchant?: string;
-    pan?: string;
-    city?: string;
-  };
-  presetRub?: number | null;
+type ScanData = {
+  raw: string;
+  merchant?: string;
+  pan?: string;
+  city?: string;
+  amountRub: number; // parsed RUB
 };
 
 export default function Scan() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const controlsRef = useRef<IScannerControls | null>(null);
-  const [detected, setDetected] = useState<DetectedPayload | null>(null);
-  const [starsInput, setStarsInput] = useState<string>("");
+  const [data, setData] = useState<ScanData | null>(null);
   const [sending, setSending] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  // Camera init with ZXing
+  // init camera and ZXing
   useEffect(() => {
+    let disposed = false;
     (async () => {
       if (!videoRef.current) return;
       try {
@@ -33,39 +31,34 @@ export default function Scan() {
           undefined,
           videoRef.current,
           (res, err, controls) => {
+            if (disposed) return;
             if (res?.getText()) {
               controls.stop();
               controlsRef.current = controls;
               const raw = res.getText();
 
-              // Try both EMV and SBP parsers
-              let presetRub: number | null = null;
-              let merchant = "";
-              let pan = "";
-              let city = "";
+              // Parse SBP & EMV
+              let rub: number | null = null;
+              let merchant = "", pan = "", city = "";
               const sbp = parseSBPLink(raw);
-              if (sbp?.amount) {
-                presetRub = sbp.amount;
-              }
-              const info = parseEMVQR(raw);
-              if (info) {
-                merchant = info?.merchant || merchant;
-                pan = info?.account || info?.nodes?.["26"]?.["01"] || "";
-                city = info?.city || city;
-                if (!presetRub && typeof info?.amount === "number") {
-                  presetRub = info.amount;
+              if (sbp?.amount) rub = sbp.amount;
+
+              const emv = parseEMVQR(raw);
+              if (emv) {
+                merchant = emv.merchant || merchant;
+                city = emv.city || city;
+                pan = emv.account || emv?.nodes?.["26"]?.["01"] || "";
+                if (rub === null && typeof emv.amount === "number") {
+                  // EMV amount is usually in currency units (RUB)
+                  rub = emv.amount;
                 }
               }
 
-              const starsFromRub = presetRub ? Math.round(presetRub * 2) : 0;
-              setStarsInput(starsFromRub ? String(starsFromRub) : "");
-
-              setDetected({
-                raw,
-                qr: raw,
-                info: { merchant, pan, city },
-                presetRub,
-              });
+              if (!rub || rub <= 0) {
+                setError("Не удалось определить сумму из QR. Убедись, что QR содержит сумму.");
+              } else {
+                setData({ raw, merchant, pan, city, amountRub: rub });
+              }
             }
           }
         );
@@ -75,10 +68,7 @@ export default function Scan() {
         setStatus("Не удалось получить доступ к камере. Проверь разрешения.");
       }
     })();
-
-    return () => {
-      try { controlsRef.current?.stop(); } catch {}
-    };
+    return () => { disposed = true; try { controlsRef.current?.stop(); } catch {} };
   }, []);
 
   const takeSnapshot = (): string | null => {
@@ -96,21 +86,28 @@ export default function Scan() {
     catch { return canvas.toDataURL("image/png"); }
   };
 
-  async function sendToAdmin() {
-    if (!detected) return;
-    const stars = Number(starsInput);
-    if (!Number.isFinite(stars) || stars <= 0) { alert("Введите корректную сумму в ⭐"); return; }
-    const amount_rub = stars / 2; // 2⭐ = 1₽
+  const closeModal = () => {
+    setData(null);
+    setError(null);
+    setStatus(null);
+    // optionally resume scanning
+    try { controlsRef.current?.stop(); } catch {}
+  };
+
+  async function pay() {
+    if (!data) return;
+    const uidRaw = (typeof window !== "undefined") ? localStorage.getItem("user_id") : null;
+    const tg_id = uidRaw ? Number(uidRaw) : null;
+    if (!tg_id) { setStatus("Не найден tg_id (WebApp). Открой через Telegram WebApp."); return; }
 
     setSending(true);
     setStatus(null);
     try {
       const qr_image_b64 = takeSnapshot();
       const payload: any = {
-        tg_id: null,
-        user_id: null,
-        qr_payload: detected?.raw || detected?.qr || null,
-        amount_rub,
+        tg_id,
+        qr_payload: data.raw,
+        amount_rub: data.amountRub,
         max_limit_rub: null,
         qr_image_b64,
       };
@@ -119,13 +116,10 @@ export default function Scan() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const data = await res.json();
-      if (!res.ok || !data?.ok) throw new Error(data?.error || "scan-submit failed");
-
-      setStatus(data?.admin_notified ? "✅ Отправлено админу" : "⚠️ Запрос сохранён, но админ недоступен");
-      setDetected(null);
-      setStarsInput("");
-      try { controlsRef.current?.stop(); } catch {}
+      const json = await res.json();
+      if (!res.ok || !json?.ok) throw new Error(json?.error || "scan-submit failed");
+      setStatus(json?.admin_notified ? "✅ Запрос оплаты...." : "⚠️ Запрос сохранён, но админ недоступен");
+      setData(null);
     } catch (e:any) {
       setStatus(`Ошибка: ${e?.message || String(e)}`);
     } finally {
@@ -133,7 +127,7 @@ export default function Scan() {
     }
   }
 
-  const presetStars = detected?.presetRub ? Math.round((detected.presetRub || 0) * 2) : null;
+  const stars = data ? Math.round(data.amountRub * 2) : 0;
 
   return (
     <Layout>
@@ -143,14 +137,10 @@ export default function Scan() {
         <div className="text-xs text-slate-500">2⭐ = 1₽</div>
       </div>
 
-      {/* Camera with overlay */}
+      {/* Camera */}
       <div className="px-4">
         <div className="relative rounded-2xl overflow-hidden shadow-sm ring-1 ring-slate-200">
-          <video
-            ref={videoRef}
-            className="w-full aspect-[3/4] bg-black object-cover"
-            playsInline muted autoPlay
-          />
+          <video ref={videoRef} className="w-full aspect-[3/4] bg-black object-cover" playsInline muted autoPlay />
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <div className="w-[72%] aspect-square rounded-2xl border-[3px] border-white/80 shadow-[0_0_30px_rgba(0,0,0,0.4)]" />
           </div>
@@ -158,78 +148,61 @@ export default function Scan() {
         </div>
       </div>
 
-      {/* Bottom sheet */}
-      <div className="mt-4 px-4">
-        <div className="rounded-2xl border border-slate-200 bg-white shadow-sm p-4">
-          {!detected && (
-            <div className="text-slate-600 text-sm">
-              Наведи камеру на QR-код. Когда QR распознается — появится карточка с данными.
+      {status && <div className="px-4 mt-3 text-sm text-slate-700">{status}</div>}
+
+      {/* Modal: parsed data */}
+      {data && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50">
+          <div className="w-full sm:max-w-md sm:rounded-2xl sm:shadow-xl sm:mx-auto bg-white rounded-t-2xl p-4">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-base font-semibold">Подтверждение оплаты</div>
+              <button onClick={closeModal} className="text-slate-500 hover:text-slate-700">✕</button>
             </div>
-          )}
 
-          {detected && (
-            <div className="space-y-4">
-              {/* Pills row */}
-              <div className="flex gap-2 flex-wrap">
-                <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-sm">
-                  <span className="mr-1 opacity-60">Мерчант</span>
-                  <span className="font-medium">{detected.info?.merchant || "—"}</span>
-                </span>
-                <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-sm">
-                  <span className="mr-1 opacity-60">Город</span>
-                  <span className="font-medium">{detected.info?.city || "—"}</span>
-                </span>
-                <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-sm">
-                  <span className="mr-1 opacity-60">PAN</span>
-                  <span className="font-mono">{detected.info?.pan || "—"}</span>
-                </span>
+            <div className="space-y-3">
+              <div className="rounded-xl bg-slate-50 p-3">
+                <div className="text-xs text-slate-500">Получатель</div>
+                <div className="font-medium">{data.merchant || "Неизвестно"}</div>
+                {data.city ? <div className="text-xs text-slate-500 mt-0.5">Город: {data.city}</div> : null}
+                {data.pan ? <div className="text-xs text-slate-500 mt-0.5">PAN: <span className="font-mono">{data.pan}</span></div> : null}
               </div>
 
-              {/* Amount */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <label className="block text-sm text-slate-600">Сумма в ⭐</label>
-                  {presetStars ? (
-                    <span className="text-xs text-slate-500">распознано из QR: ≈ {presetStars} ⭐</span>
-                  ) : null}
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    placeholder={presetStars ? String(presetStars) : "Например: 200"}
-                    value={starsInput}
-                    onChange={(e) => setStarsInput(e.target.value.replace(/[^\d.]/g, ""))}
-                    className="flex-1 rounded-xl border border-slate-300 px-3 py-2 text-lg outline-none focus:border-blue-500"
-                  />
-                  <div className="text-slate-500 text-sm min-w-[90px] text-right">
-                    ≈ {(Number(starsInput || (presetStars || 0)) / 2).toLocaleString("ru-RU")} ₽
-                  </div>
+              <div className="rounded-xl bg-slate-50 p-3 flex items-center justify-between">
+                <div className="text-slate-600">Сумма</div>
+                <div className="text-right">
+                  <div className="text-lg font-semibold">{data.amountRub.toLocaleString("ru-RU")} ₽</div>
+                  <div className="text-xs text-slate-500">{stars} ⭐</div>
                 </div>
               </div>
 
-              {/* Buttons */}
               <div className="flex gap-2 justify-end">
-                <button
-                  onClick={() => { setDetected(null); setStarsInput(""); setStatus(null); }}
-                  className="bg-slate-100 hover:bg-slate-200 px-4 py-2 rounded-xl"
-                >
-                  Отмена
-                </button>
-                <button
-                  onClick={sendToAdmin}
-                  disabled={sending}
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-xl disabled:opacity-60"
-                >
+                <button onClick={closeModal} className="bg-slate-100 hover:bg-slate-200 px-4 py-2 rounded-xl">Отмена</button>
+                <button onClick={pay} disabled={sending} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-xl disabled:opacity-60">
                   {sending ? "Отправка..." : "Оплатить"}
                 </button>
               </div>
             </div>
-          )}
-
-          {status && <div className="mt-3 text-sm text-slate-700">{status}</div>}
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Modal: parse error */}
+      {error && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50">
+          <div className="w-full sm:max-w-md sm:rounded-2xl sm:shadow-xl sm:mx-auto bg-white rounded-t-2xl p-4">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-base font-semibold">Не удалось распознать сумму</div>
+              <button onClick={closeModal} className="text-slate-500 hover:text-slate-700">✕</button>
+            </div>
+            <div className="text-sm text-slate-600">
+              QR-код не содержит сумму или формат отличается от СБП/EMV с суммой.
+            </div>
+            <div className="mt-3 flex justify-end">
+              <button onClick={closeModal} className="bg-slate-100 hover:bg-slate-200 px-4 py-2 rounded-xl">Понял</button>
+            </div>
+          </div>
+        </div>
+      )}
     </Layout>
   );
 }
