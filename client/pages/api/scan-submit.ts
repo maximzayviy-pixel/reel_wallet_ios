@@ -45,7 +45,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const { data: balRow, error: balErr } = await supabase
       .from("balances_by_tg")
-      .select("stars_numeric")
+      .select("stars")
       .eq("tg_id", tg_id)
       .maybeSingle();
 
@@ -59,17 +59,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const needStars = Math.round(amount_rub * 2);
-    if (balRow.stars_numeric < needStars) {
+    if (balRow.stars < needStars) {
       console.error("402 INSUFFICIENT_BALANCE", {
         tgId: tg_id,
         need: needStars,
-        have: balRow.stars_numeric,
+        have: balRow.stars,
       });
       return res.status(402).json({
         ok: false,
         reason: "INSUFFICIENT_BALANCE",
         need: needStars,
-        have: balRow.stars_numeric,
+        have: balRow.stars,
       });
     }
   } catch (e) {
