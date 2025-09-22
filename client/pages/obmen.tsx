@@ -56,13 +56,13 @@ export default function Browser() {
               <div className="text-xs font-medium text-slate-500">Что готовим:</div>
               <ul className="text-sm text-slate-700 space-y-1">
                 <li>• Обмен звезд на TON</li>
-                <li>• Обмен звёзд на подарки в разделе барузер!</li>
+                <li>• Обмен звёзд на подарки в разделе браузер!</li>
                 <li>• История и отслеживание обменов</li>
               </ul>
             </div>
 
             <p className="mt-6 text-[11px] text-slate-400 text-center">
-              P.S. Если есть идеи для обменов — напишите в чат поддержки, мы учтём в приоритете.
+              P.S. Если есть идеи для обменов — напишите в чат поддержки, мы учтём, и после появления вашей идеи, начислим вам 1000 звёзд!.
             </p>
           </div>
         </div>
