@@ -13,7 +13,7 @@ function bad(res: NextApiResponse, error: string, code = 400, extra?: any) {
 }
 
 async function getRubBalance(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   tgId: string
 ): Promise<{ rub: number; stars: number; ton: number }> {
   // 1) пробуем VIEW balances_by_tg (ожидаем: tg_id, stars, ton, total_rub)
@@ -21,7 +21,7 @@ async function getRubBalance(
     .from("balances_by_tg")
     .select("stars, ton, total_rub")
     .eq("tg_id", tgId)
-    .maybeSingle<any>();
+    .maybeSingle();
 
   if (v.data && !v.error) {
     const stars = Number(v.data.stars || 0);
@@ -37,7 +37,7 @@ async function getRubBalance(
     .from("balances")
     .select("stars, ton")
     .eq("tg_id", tgId)
-    .maybeSingle<any>();
+    .maybeSingle();
 
   const stars = Number(b.data?.stars || 0);
   const ton = Number(b.data?.ton || 0);
