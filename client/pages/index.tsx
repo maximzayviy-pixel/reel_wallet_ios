@@ -128,7 +128,7 @@ export default function Home() {
           rel="noreferrer"
           className="block rounded-3xl bg-gradient-to-r from-blue-500 to-indigo-600 p-5 text-white"
         >
-          <div className="text-lg font-semibold">Подписывайся на наш Telegram-канал и получай возможность участвовать в розыгрышах</div>
+          <div className="text-lg font-semibold">Получай возможность участвовать в розыгрышах тут</div>
           <div className="text-xs opacity-90 mb-2">@reelwallet</div>
           <span className="bg-white text-slate-900 rounded-full px-3 py-1 text-sm inline-block">Открыть канал</span>
         </a>
