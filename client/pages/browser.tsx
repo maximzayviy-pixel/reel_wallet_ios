@@ -1,70 +1,122 @@
 // pages/browser.tsx
+import { useState } from "react";
 import Layout from "../components/Layout";
 
 export default function Browser() {
+  const [copied, setCopied] = useState(false);
+  const adminHandle = "@ReelWalet";
+  const adminUrl = "https://t.me/ReelWalet";
+
+  const copyHandle = async () => {
+    try {
+      await navigator.clipboard.writeText(adminHandle);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   return (
     <Layout title="Витрина подарков">
-      <div className="max-w-md mx-auto p-4">
-        <div className="relative overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-100">
+      <div className="max-w-2xl mx-auto p-4 sm:p-6">
+        {/* Card */}
+        <div className="relative overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-100">
+          {/* Soft gradients background */}
           <div
             aria-hidden
-            className="absolute inset-0 bg-[radial-gradient(1200px_400px_at_50%_-10%,#e0f2fe_0%,transparent_50%),radial-gradient(800px_300px_at_80%_120%,#ecfccb_0%,transparent_40%)] opacity-60"
-          />
-          <div className="relative p-6">
-            <div className="inline-flex items-center gap-2 rounded-full bg-amber-50 text-amber-700 ring-1 ring-amber-200 px-3 py-1 text-xs font-medium">
-              <span className="animate-pulse">🚧</span> Раздел в разработке
-            </div>
+            className="pointer-events-none absolute inset-0 opacity-70 [mask-image:radial-gradient(60%_60%_at_50%_30%,#000_40%,transparent_100%)]"
+          >
+            <div className="absolute -top-8 left-1/2 h-80 w-80 -translate-x-1/2 rounded-full bg-cyan-100 blur-3xl" />
+            <div className="absolute -bottom-10 -right-10 h-72 w-72 rounded-full bg-emerald-100 blur-3xl" />
+          </div>
 
-            <h1 className="mt-3 text-2xl font-semibold tracking-tight text-slate-900">
-              Витрина подарков скоро появится
-            </h1>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
-              Здесь будут коллекции подарков, подборки и персональные предложения.
-              Мы уже готовим витрины — как только всё будет готово, раздел
-              автоматически появится у вас в приложении.
-            </p>
-
-            <div className="mt-6 flex items-center justify-center">
-              <div className="relative h-36 w-56">
-                <svg
-                  viewBox="0 0 200 120"
-                  className="h-full w-full drop-shadow-sm"
-                  role="img"
-                  aria-label="Иллюстрация: строим раздел"
-                >
-                  <defs>
-                    <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
-                      <stop offset="0%" stopColor="#60a5fa" />
-                      <stop offset="100%" stopColor="#a7f3d0" />
-                    </linearGradient>
-                  </defs>
-                  <rect x="8" y="20" width="184" height="80" rx="12" fill="url(#g1)" opacity="0.25" />
-                  <g>
-                    <rect x="26" y="36" width="60" height="12" rx="6" fill="#0ea5e9" opacity="0.7" />
-                    <rect x="26" y="54" width="92" height="12" rx="6" fill="#22c55e" opacity="0.7" />
-                    <rect x="26" y="72" width="44" height="12" rx="6" fill="#f59e0b" opacity="0.7" />
-                    <circle cx="160" cy="50" r="10" fill="#0ea5e9">
-                      <animate attributeName="r" values="8;10;8" dur="1.6s" repeatCount="indefinite" />
-                    </circle>
-                    <circle cx="176" cy="66" r="10" fill="#22c55e">
-                      <animate attributeName="r" values="8;10;8" dur="1.6s" begin=".2s" repeatCount="indefinite" />
-                    </circle>
-                  </g>
-                </svg>
+          <div className="relative p-6 sm:p-10">
+            {/* Header */}
+            <div className="flex items-center gap-2">
+              <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-amber-100">🎁</span>
+              <div>
+                <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900">
+                  Передача коллекционного подарка
+                </h1>
+                <p className="text-slate-600 text-sm sm:text-base">
+                  Юзеры передают подарок администратору вручную, а админ вручную начисляет ⭐ звёзды на баланс.
+                </p>
               </div>
             </div>
 
-            <div className="mt-6 space-y-2">
-              <div className="text-xs font-medium text-slate-500">Что готовим:</div>
-              <ul className="text-sm text-slate-700 space-y-1">
-                <li>• Тематические коллекции и поиск</li>
-                <li>• Оплата звёздами ⭐ напрямую из кошелька</li>
-                <li>• История и отслеживание подарков</li>
-              </ul>
+            {/* CTA block */}
+            <div className="mt-6 sm:mt-8 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+              <a
+                href={adminUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center justify-center rounded-2xl px-4 py-3 text-sm font-semibold text-white bg-slate-900 hover:bg-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+              >
+                Связаться с админом в Telegram
+                <svg
+                  className="ml-2 h-4 w-4"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                  aria-hidden
+                >
+                  <path d="M5 10a1 1 0 0 1 1-1h6.586L10.293 6.707a1 1 0 1 1 1.414-1.414l4 4a1 1 0 0 1 0 1.414l-4 4A1 1 0 1 1 10.293 13.293L12.586 11H6a1 1 0 0 1-1-1Z" />
+                </svg>
+              </a>
+
+              <button
+                type="button"
+                onClick={copyHandle}
+                className="inline-flex items-center justify-center rounded-2xl px-4 py-3 text-sm font-semibold text-slate-700 bg-white ring-1 ring-slate-200 hover:bg-slate-50"
+              >
+                {copied ? "Скопировано!" : `Скопировать ${adminHandle}`}
+              </button>
             </div>
 
-            <p className="mt-6 text-[11px] text-slate-400 text-center">
-              P.S. Если есть идеи для витрины — напишите в чат поддержки, мы учтём в приоритете.
+            {/* Steps */}
+            <div className="mt-8 grid gap-4">
+              <div className="rounded-2xl ring-1 ring-slate-200 bg-white/70 p-4">
+                <div className="text-xs font-medium text-slate-500">Как это работает</div>
+                <ol className="mt-2 space-y-2 text-slate-700 text-sm leading-6">
+                  <li className="flex gap-2"><span className="mt-1 text-slate-400">1.</span><span>Напишите админу <a href={adminUrl} target="_blank" rel="noopener noreferrer" className="font-medium text-slate-900 underline decoration-slate-300 hover:decoration-slate-500">{adminHandle}</a> в Telegram.</span></li>
+                  <li className="flex gap-2"><span className="mt-1 text-slate-400">2.</span><span>Передайте коллекционный подарок вручную (по инструкции ниже).</span></li>
+                  <li className="flex gap-2"><span className="mt-1 text-slate-400">3.</span><span>Админ проверит передачу и начислит соответствующее количество ⭐ звёзд на ваш баланс.</span></li>
+                </ol>
+              </div>
+
+              <div className="rounded-2xl ring-1 ring-slate-200 bg-gradient-to-br from-sky-50 to-emerald-50 p-4">
+                <div className="text-xs font-medium text-slate-500">Инструкция по передаче подарка админу</div>
+                <ul className="mt-2 space-y-2 text-slate-700 text-sm leading-6">
+                  <li>• Откройте Telegram и перейдите в профиль администратора: <a href={adminUrl} target="_blank" rel="noopener noreferrer" className="font-medium text-slate-900 underline decoration-slate-300 hover:decoration-slate-500">{adminHandle}</a>.</li>
+                  <li>• Отправьте сообщение с темой подарка и его идентификатором/скриншотом.</li>
+                  <li>• Дождитесь подтверждения от админа и следуйте его дальнейшим инструкциям (если понадобятся).</li>
+                </ul>
+              </div>
+
+              {/* Info / safety */}
+              <div className="rounded-2xl ring-1 ring-slate-200 bg-white/70 p-4">
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5">ℹ️</span>
+                  <div className="text-sm text-slate-700 leading-6">
+                    Начисление звёзд производится <span className="font-medium text-slate-900">вручную администратором</span> после проверки передачи подарка. Срок — как правило в пределах 24 часов.
+                  </div>
+                </div>
+              </div>
+
+              {/* FAQ / tips */}
+              <div className="rounded-2xl ring-1 ring-slate-200 bg-white/70 p-4">
+                <div className="text-xs font-medium text-slate-500">Подсказки</div>
+                <ul className="mt-2 space-y-2 text-slate-700 text-sm leading-6">
+                  <li>• Если профиль не открывается, скопируйте ник и найдите его в поиске Telegram.</li>
+                  <li>• Сохраняйте переписку до зачисления звёзд.</li>
+                  <li>• По вопросам безопасности — пишите только по ссылке или нику выше.</li>
+                </ul>
+              </div>
+            </div>
+
+            {/* Footer note */}
+            <p className="mt-8 text-[11px] text-slate-400 text-center">
+              Если возникли сложности с передачей подарка — напишите админу, мы поможем.
             </p>
           </div>
         </div>
