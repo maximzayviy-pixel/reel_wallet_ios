@@ -1,89 +1,95 @@
-// pages/api/roulette-spin.ts
-import type { NextApiRequest, NextApiResponse } from "next";
-import { createClient } from "@supabase/supabase-js";
-import crypto from "crypto";
+import { useEffect, useState } from "react";
+import Layout from "../components/Layout";
 
-const PRIZES = [
-  { label: "-5", value: -5, weight: 38, rarity: "обычный" },
-  { label: "-10", value: -10, weight: 25, rarity: "обычный" },
-  { label: "-15", value: -15, weight: 15, rarity: "обычный" },
-  { label: "-20", value: -20, weight: 10, rarity: "обычный" },
-  { label: "-50", value: -50, weight: 7, rarity: "редкий" },
-  { label: "-100", value: -100, weight: 4.9, rarity: "очень редкий" },
-  { label: "+10000", value: 10000, weight: 0.1, rarity: "мега супер редкий" },
-] as const;
+export default function Obmen() {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    const t = requestAnimationFrame(() => setMounted(true));
+    return () => cancelAnimationFrame(t);
+  }, []);
 
-const COST_PER_SPIN = 15;
-const TOTAL_WEIGHT = PRIZES.reduce((s, p) => s + p.weight, 0);
+  return (
+    <Layout title="Обмен">
+      {/* Фикс на весь экран без скролла */}
+      <div className="relative min-h-[100dvh] overflow-hidden bg-gradient-to-br from-[#e6f0ff] via-[#dbeafe] to-[#e0f2fe]">
+        {/* декор */}
+        <div aria-hidden className="absolute inset-0 overflow-hidden">
+          <div className="absolute inset-0 bg-[radial-gradient(1200px_700px_at_0%_0%,rgba(59,130,246,0.28)_0%,transparent_60%),radial-gradient(1000px_600px_at_100%_100%,rgba(2,132,199,0.26)_0%,transparent_60%)]" />
+          <div className="absolute -top-24 left-1/4 h-[28rem] w-[28rem] rounded-full bg-white/25 blur-3xl" />
+          <div className="absolute -bottom-24 right-1/5 h-[26rem] w-[26rem] rounded-full bg-white/20 blur-3xl" />
+          <div className="absolute inset-0 opacity-[0.12] [background-image:linear-gradient(0deg,rgba(255,255,255,.7)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.7)_1px,transparent_1px)] [background-size:40px_40px]" />
+        </div>
 
-function pickByWeight() {
-  const r =
-    (Number(crypto.randomBytes(6).readUIntBE(0, 6)) / 2 ** 48) * TOTAL_WEIGHT;
-  let acc = 0;
-  for (const p of PRIZES) {
-    acc += p.weight;
-    if (r <= acc) return p;
-  }
-  return PRIZES[0];
-}
+        {/* Контент */}
+        <div className="relative flex min-h-[100dvh] items-center justify-center p-4">
+          <div className="relative w-full max-w-[680px]">
+            <div
+              aria-hidden
+              className="pointer-events-none absolute -inset-0.5 rounded-[34px] blur-2xl opacity-80"
+              style={{
+                background:
+                  "conic-gradient(from 180deg at 50% 50%, rgba(59,130,246,.35), rgba(2,132,199,.35), rgba(191,219,254,.35), rgba(59,130,246,.35))",
+              }}
+            />
+            <div
+              className={[
+                "relative rounded-[28px] bg-white/70 backdrop-blur-xl p-7 sm:p-10 ring-1 ring-white/50 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.25)]",
+                "transition-all duration-700 ease-out",
+                mounted ? "opacity-100 translate-y-0 scale-100" : "opacity-0 translate-y-2 scale-[0.99]",
+              ].join(" ")}
+            >
+              <div className="mx-auto h-12 w-12 rounded-2xl bg-blue-100/90 flex items-center justify-center text-xl shadow-inner">🚧</div>
+              <h1 className="mt-4 text-3xl sm:text-4xl font-semibold tracking-tight bg-gradient-to-r from-slate-900 via-slate-800 to-slate-600 bg-clip-text text-transparent">
+                Раздел в разработке
+              </h1>
+              <p className="mt-2 text-[15px] leading-7 text-slate-700">
+                Мы бережно готовим этот раздел. Совсем скоро здесь появится красивый и удобный обмен ⭐ звёзд и подарков.
+              </p>
 
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse
-) {
-  if (req.method !== "POST") return res.status(405).end();
+              <div className="mt-5 inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-xs font-medium text-white shadow-sm">
+                ✨ Обновление скоро
+              </div>
 
-  // TODO: подставь свой способ аутентификации и tg_id
-  const tg_id = (req.headers["x-tg-id"] as string) || "";
-  if (!tg_id) return res.status(401).json({ error: "Unauthorized" });
+              {/* Дорожная карта (пример) */}
+              <div className="mt-8">
+                <div className="text-xs font-medium text-slate-500">Дорожная карта</div>
+                <div className="mt-3 space-y-3">
+                  {[
+                    { title: "Обмен на TON", p: 70 },
+                    { title: "Обмен на другие криптовалюты", p: 50 },
+                    { title: "Обмен на рубли (обратный)", p: 40 },
+                  ].map((it) => (
+                    <div key={it.title}>
+                      <div className="flex items-center justify-between text-sm text-slate-700">
+                        <span>{it.title}</span>
+                        <span className="font-medium text-slate-900">{it.p}%</span>
+                      </div>
+                      <div className="mt-1 h-2 w-full rounded-full bg-slate-200 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-sky-400 to-blue-500"
+                          style={{ width: `${it.p}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
 
-  const supabase = createClient(
-    process.env.SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_KEY! // сервисный ключ использовать только на сервере
+              <p className="mt-6 text-xs text-slate-500">
+                Вопросы и идеи — напишите администратору{" "}
+                <a
+                  href="https://t.me/ReelWalet"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline decoration-slate-300 hover:decoration-slate-500"
+                >
+                  @ReelWalet
+                </a>
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Layout>
   );
-
-  try {
-    // 1) баланс до
-    const { data: balView, error: balErr } = await supabase.rpc(
-      "get_balance_by_tg",
-      { in_tg_id: tg_id }
-    );
-    if (balErr) throw balErr;
-    const balance = balView?.balance ?? 0;
-    if (balance < COST_PER_SPIN)
-      return res.status(400).json({ error: "NOT_ENOUGH_STARS" });
-
-    // 2) списание стоимости
-    const { error: debitErr } = await supabase.from("ledger").insert({
-      tg_id,
-      amount_stars: -COST_PER_SPIN,
-      source: "roulette_spin_cost",
-      meta: {},
-    });
-    if (debitErr) throw debitErr;
-
-    // 3) выбираем приз
-    const prize = pickByWeight();
-
-    // 4) применяем дельту (всегда вставляем, т.к. 0 нет среди призов)
-    const { error: deltaErr } = await supabase.from("ledger").insert({
-      tg_id,
-      amount_stars: prize.value,
-      source: "roulette_prize",
-      meta: { label: prize.label, rarity: prize.rarity },
-    });
-    if (deltaErr) throw deltaErr;
-
-    // 5) баланс после
-    const { data: balAfter, error: balAfterErr } = await supabase.rpc(
-      "get_balance_by_tg",
-      { in_tg_id: tg_id }
-    );
-    if (balAfterErr) throw balAfterErr;
-
-    res.json({ prize, balance: balAfter?.balance ?? 0 });
-  } catch (e) {
-    console.error(e);
-    return res.status(500).json({ error: "SPIN_FAILED" });
-  }
 }
