@@ -1,4 +1,3 @@
-\// client/pages/api/roulette-spin.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
@@ -36,7 +35,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const supabase = createClient(
     process.env.SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_KEY! // сервисный ключ хранить только на сервере
+    process.env.SUPABASE_SERVICE_KEY! // держать только на сервере
   );
 
   try {
