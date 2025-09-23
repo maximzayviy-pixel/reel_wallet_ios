@@ -2,7 +2,9 @@ import '../styles/globals.css'
 import type { AppProps } from 'next/app'
 import { useEffect } from 'react'
 
-export default function MyApp({ Component, pageProps }: AppProps) {
+export default import dynamic from 'next/dynamic';
+const Preloader = dynamic(() => import('../components/Preloader'), { ssr: false });
+function MyApp({ Component, pageProps }: AppProps) {
   useEffect(() => {
     try {
       const tg = (window as any).Telegram?.WebApp;
