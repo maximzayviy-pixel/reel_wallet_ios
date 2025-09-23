@@ -1,68 +1,204 @@
+// pages/exchange.tsx
+import { useEffect, useMemo, useState } from "react";
 import Layout from "../components/Layout";
 
-export default function Browser() {
+// Пример источника данных. В проде лучше отдавать JSON из /api/gifts
+// со свежими данными и флагом limited: boolean
+// Здесь заполнено несколько популярных НЕлимитированных примеров как заглушка.
+// Поля: id, title, priceStars, image, limited
+const SEED_GIFTS = [
+  {
+    id: "gift-013",
+    title: "AutoGift #013",
+    priceStars: 25,
+    image: "https://chpic.su/ru/stickers/GiftStickersByAutoGiftNews/013/",
+    limited: false,
+    source: "https://chpic.su/ru/stickers/GiftStickersByAutoGiftNews/013/",
+  },
+  {
+    id: "gift-014",
+    title: "AutoGift #014",
+    priceStars: 25,
+    image: "https://chpic.su/ru/stickers/GiftStickersByAutoGiftNews/014/",
+    limited: false,
+    source: "https://chpic.su/ru/stickers/GiftStickersByAutoGiftNews/014/",
+  },
+  {
+    id: "gift-015",
+    title: "AutoGift #015",
+    priceStars: 25,
+    image: "https://chpic.su/ru/stickers/GiftStickersByAutoGiftNews/015/",
+    limited: false,
+    source: "https://chpic.su/ru/stickers/GiftStickersByAutoGiftNews/015/",
+  },
+  {
+    id: "gift-011",
+    title: "AutoGift #011",
+    priceStars: 25,
+    image: "https://chpic.su/ru/stickers/GiftStickersByAutoGiftNews/011/",
+    limited: false,
+    source: "https://chpic.su/ru/stickers/GiftStickersByAutoGiftNews/011/",
+  },
+  {
+    id: "gift-010",
+    title: "AutoGift #010",
+    priceStars: 25,
+    image: "https://chpic.su/ru/stickers/GiftStickersByAutoGiftNews/010/",
+    limited: false,
+    source: "https://chpic.su/ru/stickers/GiftStickersByAutoGiftNews/010/",
+  },
+];
+
+export default function Exchange() {
+  const [query, setQuery] = useState("");
+  const [onlyUnlimited, setOnlyUnlimited] = useState(true);
+  const [gifts, setGifts] = useState(SEED_GIFTS);
+  const [loading, setLoading] = useState(false);
+
+  // Попытка подтянуть актуальный список с вашего API (если появится)
+  useEffect(() => {
+    const load = async () => {
+      try {
+        setLoading(true);
+        const res = await fetch("/api/gifts");
+        if (res.ok) {
+          const data = await res.json();
+          // ожидается массив { id, title, priceStars, image, limited }
+          if (Array.isArray(data) && data.length) setGifts(data);
+        }
+      } catch (_) {
+        // остаёмся на SEED_GIFTS
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, []);
+
+  const filtered = useMemo(() => {
+    return gifts
+      .filter((g) => (onlyUnlimited ? !g.limited : true))
+      .filter((g) =>
+        query.trim()
+          ? g.title.toLowerCase().includes(query.trim().toLowerCase()) ||
+            g.id.toLowerCase().includes(query.trim().toLowerCase())
+          : true
+      );
+  }, [gifts, onlyUnlimited, query]);
+
+  const handleBuy = (giftId: string) => {
+    // Вариант 1: открыть чат с ботом, который оформит покупку
+    // window.open("https://t.me/starsgiftsbot?start=" + giftId, "_blank");
+
+    // Вариант 2: писать админу, который вручную передаст подарок
+    window.open("https://t.me/ReelWalet?start=gift-" + giftId, "_blank");
+  };
+
   return (
     <Layout title="Обмен">
-      <div className="max-w-md mx-auto p-4">
-        <div className="relative overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-slate-100">
+      <div className="max-w-4xl mx-auto p-4 sm:p-6">
+        {/* Hero */}
+        <div className="relative overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-100">
           <div
             aria-hidden
-            className="absolute inset-0 bg-[radial-gradient(1200px_400px_at_50%_-10%,#e0f2fe_0%,transparent_50%),radial-gradient(800px_300px_at_80%_120%,#ecfccb_0%,transparent_40%)] opacity-60"
-          />
-          <div className="relative p-6">
-            <div className="inline-flex items-center gap-2 rounded-full bg-amber-50 text-amber-700 ring-1 ring-amber-200 px-3 py-1 text-xs font-medium">
-              <span className="animate-pulse">🚧</span> Раздел в разработке
-            </div>
+            className="pointer-events-none absolute inset-0 opacity-70 [mask-image:radial-gradient(60%_60%_at_50%_30%,#000_40%,transparent_100%)]"
+          >
+            <div className="absolute -top-8 left-1/2 h-80 w-80 -translate-x-1/2 rounded-full bg-sky-100 blur-3xl" />
+            <div className="absolute -bottom-10 -right-10 h-72 w-72 rounded-full bg-emerald-100 blur-3xl" />
+          </div>
 
-            <h1 className="mt-3 text-2xl font-semibold tracking-tight text-slate-900">
-              Обмен средств скоро появится
-            </h1>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
-              Как только всё будет готово, раздел
-              автоматически появится у вас в приложении.
-            </p>
-
-            <div className="mt-6 flex items-center justify-center">
-              <div className="relative h-36 w-56">
-                <svg
-                  viewBox="0 0 200 120"
-                  className="h-full w-full drop-shadow-sm"
-                  role="img"
-                  aria-label="Иллюстрация: строим раздел"
-                >
-                  <defs>
-                    <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
-                      <stop offset="0%" stopColor="#60a5fa" />
-                      <stop offset="100%" stopColor="#a7f3d0" />
-                    </linearGradient>
-                  </defs>
-                  <rect x="8" y="20" width="184" height="80" rx="12" fill="url(#g1)" opacity="0.25" />
-                  <g>
-                    <rect x="26" y="36" width="60" height="12" rx="6" fill="#0ea5e9" opacity="0.7" />
-                    <rect x="26" y="54" width="92" height="12" rx="6" fill="#22c55e" opacity="0.7" />
-                    <rect x="26" y="72" width="44" height="12" rx="6" fill="#f59e0b" opacity="0.7" />
-                    <circle cx="160" cy="50" r="10" fill="#0ea5e9">
-                      <animate attributeName="r" values="8;10;8" dur="1.6s" repeatCount="indefinite" />
-                    </circle>
-                    <circle cx="176" cy="66" r="10" fill="#22c55e">
-                      <animate attributeName="r" values="8;10;8" dur="1.6s" begin=".2s" repeatCount="indefinite" />
-                    </circle>
-                  </g>
-                </svg>
+          <div className="relative p-6 sm:p-10">
+            <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+              <div>
+                <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900">
+                  Нелимитированные подарки Telegram
+                </h1>
+                <p className="text-slate-600 text-sm sm:text-base">
+                  Покупайте подарки за ⭐ звёзды — бот или админ передаст их получателю.
+                </p>
+              </div>
+              <div className="flex gap-2 items-center">
+                <label className="inline-flex items-center gap-2 text-sm text-slate-600 select-none">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-slate-300"
+                    checked={onlyUnlimited}
+                    onChange={(e) => setOnlyUnlimited(e.target.checked)}
+                  />
+                  Только нелимитированные
+                </label>
               </div>
             </div>
 
-            <div className="mt-6 space-y-2">
-              <div className="text-xs font-medium text-slate-500">Что готовим:</div>
-              <ul className="text-sm text-slate-700 space-y-1">
-                <li>• Обмен звезд на TON</li>
-                <li>• Обмен звёзд на подарки в разделе браузер!</li>
-                <li>• История и отслеживание обменов</li>
-              </ul>
+            {/* Search */}
+            <div className="mt-4 flex items-center gap-2">
+              <div className="flex-1">
+                <input
+                  type="text"
+                  placeholder="Поиск подарка (название или id)"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-slate-300"
+                />
+              </div>
+              <a
+                href="https://t.me/ReelWalet"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hidden sm:inline-flex items-center justify-center rounded-2xl px-4 py-3 text-sm font-semibold text-slate-700 bg-white ring-1 ring-slate-200 hover:bg-slate-50"
+              >
+                Нужна помощь?
+              </a>
             </div>
 
+            {/* Grid */}
+            <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {loading && (
+                <div className="col-span-full text-sm text-slate-500">Загружаем актуальный список…</div>
+              )}
+
+              {!loading && filtered.length === 0 && (
+                <div className="col-span-full text-sm text-slate-500">Ничего не найдено.</div>
+              )}
+
+              {filtered.map((g) => (
+                <div key={g.id} className="group rounded-2xl ring-1 ring-slate-200 bg-white overflow-hidden">
+                  <div className="relative aspect-[4/3] bg-slate-50">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <a href={g.source || g.image} target="_blank" rel="noopener noreferrer">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={g.image} alt={g.title} className="h-full w-full object-cover" />
+                    </a>
+                    {g.limited && (
+                      <span className="absolute top-2 left-2 rounded-full bg-amber-100 text-amber-800 ring-1 ring-amber-200 px-2 py-0.5 text-[11px] font-medium">
+                        Лимитированный
+                      </span>
+                    )}
+                  </div>
+                  <div className="p-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="text-sm font-semibold text-slate-900 leading-tight">{g.title}</div>
+                        <div className="text-xs text-slate-500">id: {g.id}</div>
+                      </div>
+                      <div className="text-sm font-semibold text-slate-900 whitespace-nowrap">
+                        {g.priceStars} ⭐
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleBuy(g.id)}
+                      className="mt-3 w-full rounded-xl bg-slate-900 text-white text-sm font-semibold py-2.5 hover:bg-slate-800"
+                    >
+                      Купить и передать
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Note */}
             <p className="mt-6 text-[11px] text-slate-400 text-center">
-              P.S. Если есть идеи для обменов — напишите в чат поддержки, мы учтём, и после появления вашей идеи, начислим вам 1000 звёзд!.
+              Список обновляется. Цены указаны ориентировочно; итоговая стоимость в ⭐ может отличаться на момент покупки.
             </p>
           </div>
         </div>
