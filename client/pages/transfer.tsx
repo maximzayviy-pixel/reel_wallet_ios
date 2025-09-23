@@ -71,8 +71,16 @@ export default function Transfer() {
   const genTx = () =>
     `RW-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
 
+  // Текст для «Поделиться» (c упоминанием бота)
   const handleShareText = async (info: DoneInfo) => {
-    const text = `Перевод выполнен в Reel Wallet\n\nСумма: ${info.stars} ⭐ (≈ ${(info.stars / 2).toFixed(2)} ₽)\nПолучатель: ${info.toId}\nКомментарий: ${info.note || "—"}\nДата: ${formatDate(info.ts)}\nTx: ${info.tx}`;
+    const text =
+`Перевод выполнен в Reel Wallet (@reelwallet_bot)
+
+Сумма: ${info.stars} ⭐ (≈ ${(info.stars / 2).toFixed(2)} ₽)
+Получатель: ${info.toId}
+Комментарий: ${info.note || "—"}
+Дата: ${formatDate(info.ts)}
+Tx: ${info.tx}`;
     try {
       if (navigator.share) {
         await navigator.share({ title: "Чек перевода — Reel Wallet", text });
@@ -83,12 +91,12 @@ export default function Transfer() {
     } catch {}
   };
 
-  // Рендерим красивый PNG чека через Canvas API, без библиотек
+  // Рендерим PNG чека через Canvas API (без библиотек)
   const downloadReceipt = async () => {
     if (!done) return;
 
     const W = 1080; // ширина изображения (px)
-    const H = 1350; // высота (4:5 для соцсетей)
+    const H = 1350; // высота (4:5)
     const scale = Math.min(3, Math.max(2, Math.floor((window.devicePixelRatio || 2))));
 
     const canvas = document.createElement("canvas");
@@ -98,7 +106,7 @@ export default function Transfer() {
     if (!ctx) return;
     ctx.scale(scale, scale);
 
-    // Фон — синий градиент
+    // Фон — мягкий голубой градиент
     const bg = ctx.createLinearGradient(0, 0, W, H);
     bg.addColorStop(0, "#e6f0ff");
     bg.addColorStop(0.55, "#e0f2fe");
@@ -423,18 +431,34 @@ export default function Transfer() {
           <div className="text-[11px] text-slate-500">Комиссия: 0 ⭐. Перевод мгновенный. Получатель увидит пополнение в своей истории.</div>
         </div>
 
-        {/* Success — WOW чек: фуллскрин оверлей для скрина + кнопка скачать */}
+        {/* Success — WOW чек: фуллскрин оверлей */}
         {receiptOpen && done && (
           <div className="fixed inset-0 z-50">
-            {/* bg */}
-            <div className="absolute inset-0 bg-gradient-to-br from-[#e6f0ff] via-[#e0f2fe] to-[#dbeafe]" />
-            <div className="absolute inset-0 bg-[radial-gradient(1200px_700px_at_0%_0%,rgba(59,130,246,0.20)_0%,transparent_60%),radial-gradient(1000px_600px_at_100%_100%,rgba(2,132,199,0.18)_0%,transparent_60%)]" />
-            <div className="absolute inset-0 opacity-[0.10] [background-image:linear-gradient(0deg,rgba(0,0,0,.6)_1px,transparent_1px),linear-gradient(90deg,rgba(0,0,0,.6)_1px,transparent_1px)] [background-size:28px_28px]" />
+            {/* bg (декор ниже контента) */}
+            <div className="absolute inset-0 -z-10 bg-gradient-to-br from-[#e6f0ff] via-[#e0f2fe] to-[#dbeafe]" />
+            <div className="absolute inset-0 -z-10 bg-[radial-gradient(1200px_700px_at_0%_0%,rgba(59,130,246,0.20)_0%,transparent_60%),radial-gradient(1000px_600px_at_100%_100%,rgba(2,132,199,0.18)_0%,transparent_60%)]" />
+            <div className="absolute inset-0 -z-10 opacity-[0.10] [background-image:linear-gradient(0deg,rgba(0,0,0,.6)_1px,transparent_1px),linear-gradient(90deg,rgba(0,0,0,.6)_1px,transparent_1px)] [background-size:28px_28px]" />
 
             {/* top controls */}
-            <div className="absolute left-0 right-0 top-0 p-3 flex justify-end gap-2">
-              <button onClick={() => setReceiptOpen(false)} className="rounded-xl bg-white/80 backdrop-blur px-3 py-2 text-sm ring-1 ring-slate-200 hover:bg-white">Закрыть</button>
-              <button onClick={downloadReceipt} className="rounded-xl bg-slate-900 text-white px-3 py-2 text-sm">Скачать как фото</button>
+            <div className="absolute left-0 right-0 top-0 p-3 flex flex-wrap justify-end gap-2">
+              <button
+                onClick={() => setReceiptOpen(false)}
+                className="rounded-xl bg-white/80 backdrop-blur px-3 py-2 text-sm ring-1 ring-slate-200 hover:bg-white"
+              >
+                Готово
+              </button>
+              <button
+                onClick={() => done && handleShareText(done)}
+                className="rounded-xl bg-slate-900 text-white px-3 py-2 text-sm"
+              >
+                Поделиться
+              </button>
+              <button
+                onClick={downloadReceipt}
+                className="rounded-xl bg-slate-900 text-white px-3 py-2 text-sm"
+              >
+                Скачать как фото
+              </button>
             </div>
 
             {/* card center */}
