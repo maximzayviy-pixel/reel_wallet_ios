@@ -16,7 +16,8 @@
     "@zxing/browser": "^0.1.5",
     "@zxing/library": "^0.21.0",
     "lucide-react": "^0.344.0",
-    "framer-motion": "^10.16.4"
+    "framer-motion": "^10.16.4",
+    "html2canvas": "^1.4.1"
   },
   "devDependencies": {
     "typescript": "^5.3.3",
