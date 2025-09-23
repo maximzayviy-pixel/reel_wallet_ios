@@ -107,8 +107,14 @@ export default function Browser() {
                     Открыть в новом окне
                   </a>
                 </div>
-                <div className="mt-3 overflow-hidden rounded-xl ring-1 ring-slate-200 bg-black/5">
-                  <video$1 autoPlay muted loop playsInline
+                <div className=\"mt-3 overflow-hidden rounded-xl bg-black/5\">
+                  <video
+                    className="w-full h-auto"
+                    autoPlay
+                    muted
+                    loop
+                    playsInline
+                  >
                     <source src="https://telegram.org/file/400780400469/1/WBseEVs-P7s.4554476.mp4/ec249a3bdd29d328b9" type="video/mp4" />
                     Ваш браузер не поддерживает воспроизведение видео. Вы можете
                     <a href="https://telegram.org/file/400780400469/1/WBseEVs-P7s.4554476.mp4/ec249a3bdd29d328b9" target="_blank" rel="noopener noreferrer">посмотреть ролик здесь</a>.
