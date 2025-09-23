@@ -153,146 +153,116 @@ export default function Scan() {
 
   return (
     <Layout>
-      {/* Page background */}
-      <div className="relative min-h-[100dvh] bg-gradient-to-br from-slate-900 via-slate-850 to-slate-800 text-slate-100">
-        <div className="pointer-events-none absolute inset-0 [background:radial-gradient(60rem_60rem_at_20%_20%,rgba(37,99,235,0.12),transparent_60%),radial-gradient(40rem_40rem_at_80%_0%,rgba(16,185,129,0.12),transparent_60%),radial-gradient(50rem_50rem_at_90%_80%,rgba(168,85,247,0.10),transparent_60%)]" />
-
-        {/* Top bar */}
-        <div className="relative px-4 pt-5 pb-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-xl bg-white/10 ring-1 ring-white/20 backdrop-blur-sm grid place-items-center">🔎</div>
-            <div className="text-lg font-semibold tracking-tight">Сканер QR</div>
-          </div>
-          <div className="text-xs text-slate-300">2⭐ = 1₽</div>
-        </div>
-
-        {/* Scanner card */}
-        <div className="relative px-4">
-          <div className="relative overflow-hidden rounded-3xl ring-1 ring-white/10 shadow-[0_20px_60px_-20px_rgba(0,0,0,0.6)] bg-gradient-to-b from-white/5 to-white/[0.03] backdrop-blur-sm">
-            <video
-              ref={videoRef}
-              className="w-full aspect-[3/4] bg-black/70 object-cover rounded-3xl"
-              playsInline
-              muted
-              autoPlay
-            />
-
-            {/* Framing HUD */}
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-              <div className="w-[72%] aspect-square rounded-3xl border-[3px] border-white/80 shadow-[0_0_30px_rgba(0,0,0,0.5)]" />
-            </div>
-
-            {/* Gradient fade at bottom */}
-            <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-28 bg-gradient-to-t from-slate-900/80 to-transparent" />
-          </div>
-        </div>
-
-        {/* Inline status text */}
-        {status && (
-          <div className="relative px-4 mt-3 text-sm text-slate-200/90">
-            {status}
-          </div>
-        )}
-
-        {/* Payment confirmation modal */}
-        {data && (
-          <div className="fixed inset-0 z-50 grid place-items-center p-4">
-            {/* Overlay with soft gradient */}
-            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
-            <div className="absolute inset-0 [background:radial-gradient(35rem_35rem_at_50%_0%,rgba(59,130,246,0.25),transparent_60%),radial-gradient(30rem_30rem_at_20%_80%,rgba(99,102,241,0.25),transparent_60%)]" />
-
-            <div className="relative w-full max-w-md rounded-3xl overflow-hidden ring-1 ring-white/15 shadow-2xl">
-              <div className="bg-gradient-to-br from-white/85 to-white/70 text-slate-900 backdrop-blur-xl">
-                <div className="p-4 border-b border-white/40 flex items-center justify-between">
-                  <div className="text-base font-semibold">Подтверждение оплаты</div>
-                  <button
-                    onClick={closeModal}
-                    className="text-slate-600 hover:text-slate-800 transition-colors"
-                    aria-label="Закрыть"
-                  >
-                    ✕
-                  </button>
-                </div>
-
-                <div className="p-4 space-y-3">
-                  <div className="rounded-2xl p-3 bg-white/70 ring-1 ring-black/5">
-                    <div className="text-xs text-slate-500">Получатель</div>
-                    <div className="font-medium truncate">
-                      {data.merchant || "Неизвестно"}
-                    </div>
-                    {data.city ? (
-                      <div className="text-xs text-slate-500 mt-0.5">Город: {data.city}</div>
-                    ) : null}
-                    {data.pan ? (
-                      <div className="text-xs text-slate-500 mt-0.5">
-                        PAN: <span className="font-mono">{data.pan}</span>
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <div className="rounded-2xl p-3 bg-white/70 ring-1 ring-black/5 flex items-center justify-between">
-                    <div className="text-slate-600">Сумма</div>
-                    <div className="text-right">
-                      <div className="text-lg font-semibold">
-                        {data.amountRub.toLocaleString("ru-RU")} ₽
-                      </div>
-                      <div className="text-xs text-slate-500">{stars} ⭐</div>
-                    </div>
-                  </div>
-
-                  <div className="flex gap-2 justify-end pt-2">
-                    <button
-                      onClick={closeModal}
-                      className="px-4 py-2 rounded-xl ring-1 ring-slate-300/70 text-slate-700 bg-white/60 hover:bg-white transition-colors"
-                    >
-                      Отказаться
-                    </button>
-                    <button
-                      onClick={pay}
-                      disabled={sending}
-                      className="px-5 py-2 rounded-xl text-white disabled:opacity-60 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow"
-                    >
-                      {sending ? "Отправка..." : "Оплатить"}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Error modal */}
-        {error && (
-          <div className="fixed inset-0 z-50 grid place-items-center p-4">
-            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
-            <div className="relative w-full max-w-md rounded-3xl overflow-hidden ring-1 ring-white/15 shadow-2xl">
-              <div className="bg-gradient-to-br from-white/90 to-white/70 text-slate-900 backdrop-blur-xl">
-                <div className="p-4 border-b border-white/40 flex items-center justify-between">
-                  <div className="text-base font-semibold">Не удалось распознать сумму</div>
-                  <button
-                    onClick={closeModal}
-                    className="text-slate-600 hover:text-slate-800 transition-colors"
-                    aria-label="Закрыть"
-                  >
-                    ✕
-                  </button>
-                </div>
-                <div className="p-4 text-sm text-slate-700">
-                  QR-код не содержит сумму или формат отличается от СБП/EMV.
-                </div>
-                <div className="p-4 pt-0 flex justify-end">
-                  <button
-                    onClick={closeModal}
-                    className="px-4 py-2 rounded-xl ring-1 ring-slate-300/70 text-slate-700 bg-white/70 hover:bg-white transition-colors"
-                  >
-                    Понял
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+      <div className="px-4 pt-4 pb-2 flex items-center justify-between">
+        <div className="text-lg font-semibold">Сканер QR</div>
+        <div className="text-xs text-slate-500">2⭐ = 1₽</div>
       </div>
+
+      <div className="px-4">
+        <div className="relative rounded-2xl overflow-hidden shadow-sm ring-1 ring-slate-200">
+          <video
+            ref={videoRef}
+            className="w-full aspect-[3/4] bg-black object-cover"
+            playsInline
+            muted
+            autoPlay
+          />
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <div className="w-[72%] aspect-square rounded-2xl border-[3px] border-white/80 shadow-[0_0_30px_rgba(0,0,0,0.4)]" />
+          </div>
+          <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-24 bg-gradient-to-t from-black/60 to-transparent" />
+        </div>
+      </div>
+
+      {status && <div className="px-4 mt-3 text-sm text-slate-700">{status}</div>}
+
+      {data && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50">
+          <div className="w-full sm:max-w-md sm:rounded-2xl sm:shadow-xl sm:mx-auto bg-white rounded-t-2xl p-4">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-base font-semibold">Подтверждение оплаты</div>
+              <button
+                onClick={closeModal}
+                className="text-slate-500 hover:text-slate-700"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div className="rounded-xl bg-slate-50 p-3">
+                <div className="text-xs text-slate-500">Получатель</div>
+                <div className="font-medium">{data.merchant || "Неизвестно"}</div>
+                {data.city ? (
+                  <div className="text-xs text-slate-500 mt-0.5">
+                    Город: {data.city}
+                  </div>
+                ) : null}
+                {data.pan ? (
+                  <div className="text-xs text-slate-500 mt-0.5">
+                    PAN: <span className="font-mono">{data.pan}</span>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="rounded-xl bg-slate-50 p-3 flex items-center justify-between">
+                <div className="text-slate-600">Сумма</div>
+                <div className="text-right">
+                  <div className="text-lg font-semibold">
+                    {data.amountRub.toLocaleString("ru-RU")} ₽
+                  </div>
+                  <div className="text-xs text-slate-500">{stars} ⭐</div>
+                </div>
+              </div>
+
+              <div className="flex gap-2 justify-end">
+                <button
+                  onClick={closeModal}
+                  className="bg-slate-100 hover:bg-slate-200 px-4 py-2 rounded-xl"
+                >
+                  Отмена
+                </button>
+                <button
+                  onClick={pay}
+                  disabled={sending}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-xl disabled:opacity-60"
+                >
+                  {sending ? "Отправка..." : "Оплатить"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50">
+          <div className="w-full sm:max-w-md sm:rounded-2xl sm:shadow-xl sm:mx-auto bg-white rounded-t-2xl p-4">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-base font-semibold">
+                Не удалось распознать сумму
+              </div>
+              <button
+                onClick={closeModal}
+                className="text-slate-500 hover:text-slate-700"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="text-sm text-slate-600">
+              QR-код не содержит сумму или формат отличается от СБП/EMV.
+            </div>
+            <div className="mt-3 flex justify-end">
+              <button
+                onClick={closeModal}
+                className="bg-slate-100 hover:bg-slate-200 px-4 py-2 rounded-xl"
+              >
+                Понял
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </Layout>
   );
 }
