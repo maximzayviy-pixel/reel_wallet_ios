@@ -107,7 +107,7 @@ export default function Browser() {
                     Открыть в новом окне
                   </a>
                 </div>
-                <div className=\"mt-3 overflow-hidden rounded-xl bg-black/5\">
+                <div className="mt-3 overflow-hidden rounded-xl bg-black/5\">
                   <video
                     className="w-full h-auto"
                     autoPlay
