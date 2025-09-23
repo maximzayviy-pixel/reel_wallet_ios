@@ -27,7 +27,10 @@ function pickByWeight() {
   return PRIZES[0];
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse
+) {
   if (req.method !== "POST") return res.status(405).end();
 
   // TODO: подставь свой способ аутентификации и tg_id
@@ -36,41 +39,46 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const supabase = createClient(
     process.env.SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_KEY! // сервисный ключ только на сервере
+    process.env.SUPABASE_SERVICE_KEY! // сервисный ключ использовать только на сервере
   );
 
   try {
     // 1) баланс до
-    const { data: balView, error: balErr } = await supabase
-      .rpc("get_balance_by_tg", { in_tg_id: tg_id });
+    const { data: balView, error: balErr } = await supabase.rpc(
+      "get_balance_by_tg",
+      { in_tg_id: tg_id }
+    );
     if (balErr) throw balErr;
     const balance = balView?.balance ?? 0;
-    if (balance < COST_PER_SPIN) return res.status(400).json({ error: "NOT_ENOUGH_STARS" });
+    if (balance < COST_PER_SPIN)
+      return res.status(400).json({ error: "NOT_ENOUGH_STARS" });
 
     // 2) списание стоимости
     const { error: debitErr } = await supabase.from("ledger").insert({
       tg_id,
       amount_stars: -COST_PER_SPIN,
       source: "roulette_spin_cost",
-      meta: {}
+      meta: {},
     });
     if (debitErr) throw debitErr;
 
-    // 3) приз
+    // 3) выбираем приз
     const prize = pickByWeight();
 
-    // 4) применение приза (всегда вставляем, проверка на 0 не нужна)
+    // 4) применяем дельту (всегда вставляем, т.к. 0 нет среди призов)
     const { error: deltaErr } = await supabase.from("ledger").insert({
       tg_id,
       amount_stars: prize.value,
       source: "roulette_prize",
-      meta: { label: prize.label, rarity: prize.rarity }
+      meta: { label: prize.label, rarity: prize.rarity },
     });
     if (deltaErr) throw deltaErr;
 
     // 5) баланс после
-    const { data: balAfter, error: balAfterErr } = await supabase
-      .rpc("get_balance_by_tg", { in_tg_id: tg_id });
+    const { data: balAfter, error: balAfterErr } = await supabase.rpc(
+      "get_balance_by_tg",
+      { in_tg_id: tg_id }
+    );
     if (balAfterErr) throw balAfterErr;
 
     res.json({ prize, balance: balAfter?.balance ?? 0 });
