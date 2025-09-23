@@ -8,44 +8,52 @@ import Layout from "../components/Layout";
 // Поля: id, title, priceStars, image, limited
 const SEED_GIFTS = [
   {
-    id: "gift-013",
-    title: "AutoGift #013",
-    priceStars: 25,
-    image: "https://chpic.su/ru/stickers/GiftStickersByAutoGiftNews/013/",
+    id: "gift-15-1",
+    title: "GIF #PMk6pII",
+    priceStars: 15,
+    image: "https://i.imgur.com/PMk6pII.gif",
     limited: false,
-    source: "https://chpic.su/ru/stickers/GiftStickersByAutoGiftNews/013/",
+    source: "https://i.imgur.com/PMk6pII.gif",
   },
   {
-    id: "gift-014",
-    title: "AutoGift #014",
+    id: "gift-25-1",
+    title: "GIF #ezgif-818ad7",
     priceStars: 25,
-    image: "https://chpic.su/ru/stickers/GiftStickersByAutoGiftNews/014/",
+    image: "https://s8.ezgif.com/tmp/ezgif-818ad74ad3574c.gif",
     limited: false,
-    source: "https://chpic.su/ru/stickers/GiftStickersByAutoGiftNews/014/",
+    source: "https://s8.ezgif.com/tmp/ezgif-818ad74ad3574c.gif",
   },
   {
-    id: "gift-015",
-    title: "AutoGift #015",
-    priceStars: 25,
-    image: "https://chpic.su/ru/stickers/GiftStickersByAutoGiftNews/015/",
+    id: "gift-50-1",
+    title: "GIF #XGDxTsb",
+    priceStars: 50,
+    image: "https://i.imgur.com/XGDxTsb.gif",
     limited: false,
-    source: "https://chpic.su/ru/stickers/GiftStickersByAutoGiftNews/015/",
+    source: "https://i.imgur.com/XGDxTsb.gif",
   },
   {
-    id: "gift-011",
-    title: "AutoGift #011",
-    priceStars: 25,
-    image: "https://chpic.su/ru/stickers/GiftStickersByAutoGiftNews/011/",
+    id: "gift-50-2",
+    title: "GIF #l3Bb0Jd",
+    priceStars: 50,
+    image: "https://i.imgur.com/l3Bb0Jd.gif",
     limited: false,
-    source: "https://chpic.su/ru/stickers/GiftStickersByAutoGiftNews/011/",
+    source: "https://i.imgur.com/l3Bb0Jd.gif",
   },
   {
-    id: "gift-010",
-    title: "AutoGift #010",
-    priceStars: 25,
-    image: "https://chpic.su/ru/stickers/GiftStickersByAutoGiftNews/010/",
+    id: "gift-100-1",
+    title: "GIF #WI774v0",
+    priceStars: 100,
+    image: "https://i.imgur.com/WI774v0.gif",
     limited: false,
-    source: "https://chpic.su/ru/stickers/GiftStickersByAutoGiftNews/010/",
+    source: "https://i.imgur.com/WI774v0.gif",
+  },
+  {
+    id: "gift-50-3",
+    title: "GIF #1ZuCktd",
+    priceStars: 50,
+    image: "https://i.imgur.com/1ZuCktd.gif",
+    limited: false,
+    source: "https://i.imgur.com/1ZuCktd.gif",
   },
 ];
 
@@ -86,12 +94,9 @@ export default function Exchange() {
       );
   }, [gifts, onlyUnlimited, query]);
 
-  const handleBuy = (giftId: string) => {
-    // Вариант 1: открыть чат с ботом, который оформит покупку
-    // window.open("https://t.me/starsgiftsbot?start=" + giftId, "_blank");
-
-    // Вариант 2: писать админу, который вручную передаст подарок
-    window.open("https://t.me/ReelWalet?start=gift-" + giftId, "_blank");
+  const handleBuy = (giftId: string, price: number) => {
+    // Вариант: писать админу/боту со старт-параметрами (id и цена)
+    window.open("https://t.me/ReelWalet?start=" + encodeURIComponent(`${giftId}-${price}`), "_blank");
   };
 
   return (
@@ -181,12 +186,10 @@ export default function Exchange() {
                         <div className="text-sm font-semibold text-slate-900 leading-tight">{g.title}</div>
                         <div className="text-xs text-slate-500">id: {g.id}</div>
                       </div>
-                      <div className="text-sm font-semibold text-slate-900 whitespace-nowrap">
-                        {g.priceStars} ⭐
-                      </div>
+                      <div className="text-xs text-slate-500 whitespace-nowrap">Цена на гифке</div>
                     </div>
                     <button
-                      onClick={() => handleBuy(g.id)}
+                      onClick={() => handleBuy(g.id, g.priceStars)}
                       className="mt-3 w-full rounded-xl bg-slate-900 text-white text-sm font-semibold py-2.5 hover:bg-slate-800"
                     >
                       Купить и передать
