@@ -229,9 +229,47 @@ export default function Scan() {
                     <button
                       onClick={pay}
                       disabled={sending}
-                      className="px-5 py-2 rounded-xl text-white disabled:opacity-60 bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 shadow"
+                      className={[
+                        "relative px-5 py-2 rounded-xl text-white shadow min-w-[13rem]",
+                        "bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600",
+                        "disabled:opacity-90 disabled:cursor-not-allowed",
+                        "overflow-hidden inline-flex items-center justify-center gap-2"
+                      ].join(" ")}
                     >
-                      {sending ? "Отправка..." : "Оплатить"}
+                      {/* animated shine + top bar when sending */}
+                      {sending && (
+                        <>
+                          <span
+                            className="pointer-events-none absolute inset-0 opacity-35"
+                            style={{
+                              backgroundImage:
+                                "linear-gradient(110deg, rgba(255,255,255,0) 0%, rgba(255,255,255,.25) 45%, rgba(255,255,255,0) 60%)",
+                              backgroundSize: "200% 100%",
+                              animation: "shimmer 1.6s linear infinite"
+                            }}
+                          />
+                          <span
+                            className="pointer-events-none absolute left-0 top-0 h-[2px] bg-white/80"
+                            style={{
+                              width: "30%",
+                              animation: "bar 1.8s ease-in-out infinite"
+                            }}
+                          />
+                        </>
+                      )}
+
+                      {sending ? (
+                        <>
+                          <span
+                            className="inline-block h-4 w-4 rounded-full border-2 border-white/70 border-t-transparent animate-spin"
+                            aria-hidden="true"
+                          />
+                          <span className="font-medium tracking-wide">Ожидаем оплату</span>
+                          <span className="sr-only" aria-live="polite">Платёж обрабатывается</span>
+                        </>
+                      ) : (
+                        <span className="font-medium tracking-wide">Оплатить</span>
+                      )}
                     </button>
                   </div>
                 </div>
@@ -270,6 +308,19 @@ export default function Scan() {
           </div>
         )}
       </div>
+    </Layout>
+      {/* Local animations for button shimmer/progress */}
+      <style jsx>{`
+        @keyframes shimmer {
+          0% { background-position: -120% 0; }
+          100% { background-position: 120% 0; }
+        }
+        @keyframes bar {
+          0% { transform: translateX(-120%); width: 20%; }
+          50% { transform: translateX(60%); width: 60%; }
+          100% { transform: translateX(160%); width: 20%; }
+        }
+      `}</style>
     </Layout>
   );
 }
