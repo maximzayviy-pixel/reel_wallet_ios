@@ -7,3 +7,6 @@ body{@apply bg-slate-50 text-slate-900}
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
 body { font-family: 'Inter', sans-serif; }
+
+@keyframes reelShimmer{0%{background-position:0% 50%}100%{background-position:200% 50%}}
+.animate-reel-shimmer{animation:reelShimmer 2s linear infinite}
