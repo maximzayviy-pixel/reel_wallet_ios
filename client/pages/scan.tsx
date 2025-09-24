@@ -153,68 +153,89 @@ export default function Scan() {
 
   return (
     <Layout>
-      <div className="relative min-h-[100dvh] bg-gradient-to-br from-slate-100 via-white to-slate-50 text-slate-900">
-        {/* Top bar with only rate info */}
-        <div className="relative px-4 pt-5 pb-3 flex items-center justify-end">
-          <div className="text-xs text-slate-500">2⭐ = 1₽</div>
+      {/* Page background */}
+      <div className="relative min-h-[100dvh] bg-gradient-to-br from-slate-900 via-slate-850 to-slate-800 text-slate-100">
+        <div className="pointer-events-none absolute inset-0 [background:radial-gradient(60rem_60rem_at_20%_20%,rgba(37,99,235,0.12),transparent_60%),radial-gradient(40rem_40rem_at_80%_0%,rgba(16,185,129,0.12),transparent_60%),radial-gradient(50rem_50rem_at_90%_80%,rgba(168,85,247,0.10),transparent_60%)]" />
+
+        {/* Top bar */}
+        <div className="relative px-4 pt-5 pb-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="h-8 w-8 rounded-xl bg-white/10 ring-1 ring-white/20 backdrop-blur-sm grid place-items-center">🔎</div>
+            <div className="text-lg font-semibold tracking-tight">Сканер QR</div>
+          </div>
+          <div className="text-xs text-slate-300">2⭐ = 1₽</div>
         </div>
 
         {/* Scanner card */}
         <div className="relative px-4">
-          <div className="relative overflow-hidden rounded-3xl ring-1 ring-slate-200 shadow-md bg-white">
+          <div className="relative overflow-hidden rounded-3xl ring-1 ring-white/10 shadow-[0_20px_60px_-20px_rgba(0,0,0,0.6)] bg-gradient-to-b from-white/5 to-white/[0.03] backdrop-blur-sm">
             <video
               ref={videoRef}
-              className="w-full aspect-[3/4] bg-black object-cover rounded-3xl"
+              className="w-full aspect-[3/4] bg-black/70 object-cover rounded-3xl"
               playsInline
               muted
               autoPlay
             />
+
             {/* Framing HUD */}
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-              <div className="w-[72%] aspect-square rounded-3xl border-[3px] border-blue-500/70 shadow-[0_0_30px_rgba(0,0,0,0.3)]" />
+              <div className="w-[72%] aspect-square rounded-3xl border-[3px] border-white/80 shadow-[0_0_30px_rgba(0,0,0,0.5)]" />
             </div>
-            {/* Watermark */}
-            <div className="pointer-events-none absolute inset-0 flex items-end justify-center pb-6">
-              <div className="text-2xl font-bold text-white/50 select-none">Reel Wallet</div>
-            </div>
+
+            {/* Gradient fade at bottom */}
+            <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-28 bg-gradient-to-t from-slate-900/80 to-transparent" />
           </div>
         </div>
 
+        {/* Inline status text */}
         {status && (
-          <div className="relative px-4 mt-3 text-sm text-slate-700">{status}</div>
+          <div className="relative px-4 mt-3 text-sm text-slate-200/90">
+            {status}
+          </div>
         )}
 
+        {/* Payment confirmation modal */}
         {data && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" />
-            <div className="relative w-full max-w-md rounded-2xl overflow-hidden shadow-2xl">
-              <div className="bg-white">
-                <div className="p-4 border-b border-slate-200 flex items-center justify-between">
+          <div className="fixed inset-0 z-50 grid place-items-center p-4">
+            {/* Overlay with soft gradient */}
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+            <div className="absolute inset-0 [background:radial-gradient(35rem_35rem_at_50%_0%,rgba(59,130,246,0.25),transparent_60%),radial-gradient(30rem_30rem_at_20%_80%,rgba(99,102,241,0.25),transparent_60%)]" />
+
+            <div className="relative w-full max-w-md rounded-3xl overflow-hidden ring-1 ring-white/15 shadow-2xl">
+              <div className="bg-gradient-to-br from-white/85 to-white/70 text-slate-900 backdrop-blur-xl">
+                <div className="p-4 border-b border-white/40 flex items-center justify-between">
                   <div className="text-base font-semibold">Подтверждение оплаты</div>
                   <button
                     onClick={closeModal}
-                    className="text-slate-500 hover:text-slate-700 transition-colors"
+                    className="text-slate-600 hover:text-slate-800 transition-colors"
+                    aria-label="Закрыть"
                   >
                     ✕
                   </button>
                 </div>
 
                 <div className="p-4 space-y-3">
-                  <div className="rounded-xl p-3 bg-slate-50 ring-1 ring-slate-200">
+                  <div className="rounded-2xl p-3 bg-white/70 ring-1 ring-black/5">
                     <div className="text-xs text-slate-500">Получатель</div>
-                    <div className="font-medium">{data.merchant || "Неизвестно"}</div>
-                    {data.city && <div className="text-xs text-slate-500 mt-0.5">Город: {data.city}</div>}
-                    {data.pan && (
+                    <div className="font-medium truncate">
+                      {data.merchant || "Неизвестно"}
+                    </div>
+                    {data.city ? (
+                      <div className="text-xs text-slate-500 mt-0.5">Город: {data.city}</div>
+                    ) : null}
+                    {data.pan ? (
                       <div className="text-xs text-slate-500 mt-0.5">
                         PAN: <span className="font-mono">{data.pan}</span>
                       </div>
-                    )}
+                    ) : null}
                   </div>
 
-                  <div className="rounded-xl p-3 bg-slate-50 ring-1 ring-slate-200 flex items-center justify-between">
+                  <div className="rounded-2xl p-3 bg-white/70 ring-1 ring-black/5 flex items-center justify-between">
                     <div className="text-slate-600">Сумма</div>
                     <div className="text-right">
-                      <div className="text-lg font-semibold">{data.amountRub.toLocaleString("ru-RU")} ₽</div>
+                      <div className="text-lg font-semibold">
+                        {data.amountRub.toLocaleString("ru-RU")} ₽
+                      </div>
                       <div className="text-xs text-slate-500">{stars} ⭐</div>
                     </div>
                   </div>
@@ -222,54 +243,16 @@ export default function Scan() {
                   <div className="flex gap-2 justify-end pt-2">
                     <button
                       onClick={closeModal}
-                      className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 transition-colors"
+                      className="px-4 py-2 rounded-xl ring-1 ring-slate-300/70 text-slate-700 bg-white/60 hover:bg-white transition-colors"
                     >
                       Отказаться
                     </button>
                     <button
                       onClick={pay}
                       disabled={sending}
-                      className={[
-                        "relative px-5 py-2 rounded-xl text-white shadow min-w-[13rem]",
-                        "bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600",
-                        "disabled:opacity-90 disabled:cursor-not-allowed",
-                        "overflow-hidden inline-flex items-center justify-center gap-2"
-                      ].join(" ")}
+                      className="px-5 py-2 rounded-xl text-white disabled:opacity-60 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow"
                     >
-                      {/* animated shine + top bar when sending */}
-                      {sending && (
-                        <>
-                          <span
-                            className="pointer-events-none absolute inset-0 opacity-35"
-                            style={{
-                              backgroundImage:
-                                "linear-gradient(110deg, rgba(255,255,255,0) 0%, rgba(255,255,255,.25) 45%, rgba(255,255,255,0) 60%)",
-                              backgroundSize: "200% 100%",
-                              animation: "shimmer 1.6s linear infinite"
-                            }}
-                          />
-                          <span
-                            className="pointer-events-none absolute left-0 top-0 h-[2px] bg-white/80"
-                            style={{
-                              width: "30%",
-                              animation: "bar 1.8s ease-in-out infinite"
-                            }}
-                          />
-                        </>
-                      )}
-
-                      {sending ? (
-                        <>
-                          <span
-                            className="inline-block h-4 w-4 rounded-full border-2 border-white/70 border-t-transparent animate-spin"
-                            aria-hidden="true"
-                          />
-                          <span className="font-medium tracking-wide">Ожидаем оплату</span>
-                          <span className="sr-only" aria-live="polite">Платёж обрабатывается</span>
-                        </>
-                      ) : (
-                        <span className="font-medium tracking-wide">Оплатить</span>
-                      )}
+                      {sending ? "Отправка..." : "Оплатить"}
                     </button>
                   </div>
                 </div>
@@ -278,27 +261,29 @@ export default function Scan() {
           </div>
         )}
 
+        {/* Error modal */}
         {error && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" />
-            <div className="relative w-full max-w-md rounded-2xl overflow-hidden shadow-2xl">
-              <div className="bg-white">
-                <div className="p-4 border-b border-slate-200 flex items-center justify-between">
+          <div className="fixed inset-0 z-50 grid place-items-center p-4">
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+            <div className="relative w-full max-w-md rounded-3xl overflow-hidden ring-1 ring-white/15 shadow-2xl">
+              <div className="bg-gradient-to-br from-white/90 to-white/70 text-slate-900 backdrop-blur-xl">
+                <div className="p-4 border-b border-white/40 flex items-center justify-between">
                   <div className="text-base font-semibold">Не удалось распознать сумму</div>
                   <button
                     onClick={closeModal}
-                    className="text-slate-500 hover:text-slate-700 transition-colors"
+                    className="text-slate-600 hover:text-slate-800 transition-colors"
+                    aria-label="Закрыть"
                   >
                     ✕
                   </button>
                 </div>
-                <div className="p-4 text-sm text-slate-600">
+                <div className="p-4 text-sm text-slate-700">
                   QR-код не содержит сумму или формат отличается от СБП/EMV.
                 </div>
                 <div className="p-4 pt-0 flex justify-end">
                   <button
                     onClick={closeModal}
-                    className="px-4 py-2 rounded-xl border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 transition-colors"
+                    className="px-4 py-2 rounded-xl ring-1 ring-slate-300/70 text-slate-700 bg-white/70 hover:bg-white transition-colors"
                   >
                     Понял
                   </button>
@@ -308,19 +293,6 @@ export default function Scan() {
           </div>
         )}
       </div>
-    </Layout>
-      {/* Local animations for button shimmer/progress */}
-      <style jsx>{`
-        @keyframes shimmer {
-          0% { background-position: -120% 0; }
-          100% { background-position: 120% 0; }
-        }
-        @keyframes bar {
-          0% { transform: translateX(-120%); width: 20%; }
-          50% { transform: translateX(60%); width: 60%; }
-          100% { transform: translateX(160%); width: 20%; }
-        }
-      `}</style>
     </Layout>
   );
 }
