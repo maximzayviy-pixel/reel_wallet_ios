@@ -1,6 +1,6 @@
 // client/pages/api/admin/tasks.ts
 import type { NextApiRequest, NextApiResponse } from "next";
-import { createServerSupabase } from "../../../lib/supabaseServer";
+import { createServerSupabase } from "../../lib/supabaseServer";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const supabase = createServerSupabase();
