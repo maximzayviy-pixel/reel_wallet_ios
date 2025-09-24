@@ -5,6 +5,7 @@ import Link from "next/link";
 type Task = {
   id: string;
   channel_username: string;
+  chat_id?: number | null;
   title: string;
   reward_stars: number;
   channel_title?: string | null;
@@ -15,7 +16,8 @@ export default function TasksCard({ tgId }: { tgId?: number }) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [result, setResult] = useState<Record<string, string>>({});
+  const [status, setStatus] = useState<Record<string, "idle" | "claimed" | "error">>({});
+  const [msg, setMsg] = useState<Record<string, string>>({});
 
   useEffect(() => {
     (async () => {
@@ -28,7 +30,7 @@ export default function TasksCard({ tgId }: { tgId?: number }) {
 
   async function check(task: Task) {
     if (!tgId) {
-      alert("Не удалось определить Telegram ID пользователя. Откройте мини-приложение из Telegram.");
+      alert("Откройте мини-приложение из Telegram, чтобы определить ваш аккаунт.");
       return;
     }
     setBusyId(task.id);
@@ -40,12 +42,15 @@ export default function TasksCard({ tgId }: { tgId?: number }) {
       });
       const j = await r.json();
       if (j.ok && j.subscribed) {
-        setResult((s) => ({ ...s, [task.id]: j.already_awarded ? "Уже получено ✅" : `+${j.stars}⭐` }));
+        setStatus((s) => ({ ...s, [task.id]: "claimed" }));
+        setMsg((m) => ({ ...m, [task.id]: j.already_awarded ? "Уже получено ✓" : `+${j.stars}⭐ начислено` }));
       } else {
-        setResult((s) => ({ ...s, [task.id]: j.message || "Подписка не обнаружена" }));
+        setStatus((s) => ({ ...s, [task.id]: "error" }));
+        setMsg((m) => ({ ...m, [task.id]: j.message || "Подписка не обнаружена" }));
       }
     } catch {
-      setResult((s) => ({ ...s, [task.id]: "Ошибка. Попробуйте ещё раз." }));
+      setStatus((s) => ({ ...s, [task.id]: "error" }));
+      setMsg((m) => ({ ...m, [task.id]: "Ошибка. Попробуйте еще раз." }));
     } finally {
       setBusyId(null);
     }
@@ -61,7 +66,7 @@ export default function TasksCard({ tgId }: { tgId?: number }) {
       <div className="relative p-6 sm:p-8">
         <div className="flex items-center gap-3 mb-4">
           <div className="h-10 w-10 rounded-2xl bg-slate-900 flex items-center justify-center text-white text-sm">⭐</div>
-          <h2 className="text-xl sm:text-2xl font-semibold text-slate-900">Задания за подписку</h2>
+          <h2 className="text-2xl font-semibold text-slate-900">Задания за подписку</h2>
         </div>
 
         {loading ? (
@@ -69,54 +74,70 @@ export default function TasksCard({ tgId }: { tgId?: number }) {
         ) : tasks.length === 0 ? (
           <p className="text-slate-500">Пока заданий нет — загляните позже.</p>
         ) : (
-          <ul className="space-y-3">
-            {tasks.map((t) => (
-              <li
-                key={t.id}
-                className="flex items-center justify-between gap-3 rounded-2xl border border-slate-100 p-3 bg-white/60"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  {/* Аватар */}
-                  {t.avatar_url ? (
-                    <img
-                      src={t.avatar_url}
-                      alt={t.title}
-                      className="h-10 w-10 rounded-full ring-1 ring-slate-200 object-cover"
-                    />
-                  ) : (
-                    <div className="h-10 w-10 rounded-full bg-slate-200 ring-1 ring-slate-200 flex items-center justify-center text-slate-600">
-                      @{t.channel_username[0]?.toUpperCase() || "?"}
-                    </div>
-                  )}
-                  {/* Названия */}
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-slate-900 truncate">
-                      {t.channel_title || t.title}
-                    </p>
-                    <p className="text-xs text-slate-500 truncate">@{t.channel_username}</p>
-                    {result[t.id] && <p className="text-xs mt-1 text-slate-600">{result[t.id]}</p>}
-                  </div>
-                </div>
+          <div className="space-y-4">
+            {/* Блок "Одноразовые" как в референсе */}
+            <div>
+              <div className="text-xs uppercase tracking-wide text-slate-500 mb-2">Одноразовые</div>
+              <ul className="space-y-3">
+                {tasks.map((t) => {
+                  const st = status[t.id];
+                  const claimed = st === "claimed";
+                  return (
+                    <li key={t.id} className="rounded-2xl border border-slate-100 p-3 bg-white/70">
+                      <div className="flex items-center gap-3">
+                        {/* avatar */}
+                        {t.avatar_url ? (
+                          <img src={t.avatar_url} alt="" className="h-10 w-10 rounded-xl object-cover ring-1 ring-slate-200" />
+                        ) : (
+                          <div className="h-10 w-10 rounded-xl bg-slate-200 ring-1 ring-slate-200 flex items-center justify-center text-slate-600">
+                            tg
+                          </div>
+                        )}
 
-                <div className="flex items-center gap-2 shrink-0">
-                  <Link
-                    className="px-3 py-2 rounded-xl bg-slate-900 text-white text-xs"
-                    href={`https://t.me/${t.channel_username}`}
-                    target="_blank"
-                  >
-                    Открыть канал
-                  </Link>
-                  <button
-                    onClick={() => check(t)}
-                    disabled={busyId === t.id}
-                    className="px-3 py-2 rounded-xl bg-emerald-600 text-white text-xs disabled:opacity-60"
-                  >
-                    {busyId === t.id ? "…" : `Проверить (+${t.reward_stars}⭐)`}
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
+                        {/* titles */}
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-medium text-slate-900 truncate">
+                            Подписаться на {t.channel_title || `@${t.channel_username}`}
+                          </div>
+                          <div className="text-xs text-slate-500 truncate">@{t.channel_username}</div>
+                          {msg[t.id] && (
+                            <div className="text-xs mt-1">
+                              <span className={st === "error" ? "text-rose-600" : "text-emerald-700"}>{msg[t.id]}</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* actions */}
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Link
+                            href={`https://t.me/${t.channel_username}`}
+                            target="_blank"
+                            className="px-3 py-2 rounded-xl bg-slate-900 text-white text-xs"
+                          >
+                            Открыть канал
+                          </Link>
+
+                          {claimed ? (
+                            <span className="px-3 py-2 rounded-xl bg-emerald-50 text-emerald-700 text-xs ring-1 ring-emerald-200">
+                              Получено ✓
+                            </span>
+                          ) : (
+                            <button
+                              onClick={() => check(t)}
+                              disabled={busyId === t.id}
+                              className="px-3 py-2 rounded-xl bg-emerald-600 text-white text-xs disabled:opacity-60"
+                            >
+                              {busyId === t.id ? "Проверяем…" : `Проверить (+${t.reward_stars}⭐)`}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          </div>
         )}
 
         <p className="mt-6 text-[11px] text-slate-400 text-center">
