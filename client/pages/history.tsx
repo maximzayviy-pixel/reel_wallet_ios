@@ -2,6 +2,7 @@
 import Layout from "../components/Layout";
 import Skeleton from "../components/Skeleton";
 import { useEffect, useMemo, useState } from "react";
+import useBanRedirect from '../lib/useBanRedirect';
 import { createClient } from "@supabase/supabase-js";
 
 type PR = {
@@ -48,6 +49,8 @@ const supabase = createClient(
 );
 
 export default function History() {
+  // Redirect banned users
+  useBanRedirect();
   const [rows, setRows] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
 

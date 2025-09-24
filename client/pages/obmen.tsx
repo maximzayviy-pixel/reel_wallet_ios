@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
+import useBanRedirect from '../lib/useBanRedirect';
 import Layout from "../components/Layout";
 
 export default function Obmen() {
+  useBanRedirect();
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
     const t = requestAnimationFrame(() => setMounted(true));

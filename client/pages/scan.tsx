@@ -1,5 +1,6 @@
 "use client";
 import Layout from "../components/Layout";
+import useBanRedirect from '../lib/useBanRedirect';
 import { useEffect, useRef, useState } from "react";
 import { BrowserMultiFormatReader, IScannerControls } from "@zxing/browser";
 import { parseEMVQR, parseSBPLink } from "../lib/emv";
@@ -13,6 +14,8 @@ type ScanData = {
 };
 
 export default function Scan() {
+  // Redirect banned users to banned page
+  useBanRedirect();
   const videoRef = useRef<HTMLVideoElement>(null);
   const controlsRef = useRef<IScannerControls | null>(null);
   const [data, setData] = useState<ScanData | null>(null);
@@ -157,8 +160,29 @@ export default function Scan() {
       <div className="relative min-h-[100dvh] bg-gradient-to-br from-slate-900 via-slate-850 to-slate-800 text-slate-100">
         <div className="pointer-events-none absolute inset-0 [background:radial-gradient(60rem_60rem_at_20%_20%,rgba(37,99,235,0.12),transparent_60%),radial-gradient(40rem_40rem_at_80%_0%,rgba(16,185,129,0.12),transparent_60%),radial-gradient(50rem_50rem_at_90%_80%,rgba(168,85,247,0.10),transparent_60%)]" />
 
-        {/* Top bar */}
-        <div className="relative px-4 pt-5 pb-3 flex items-center justify-between">
+        {/* Top overlay with cancel and titles */}
+        <div className="absolute top-4 left-4 z-20">
+          <button
+            onClick={() => {
+              try {
+                const tg: any = (window as any).Telegram?.WebApp;
+                if (tg?.close) tg.close();
+                else window.history.back();
+              } catch {
+                window.history.back();
+              }
+            }}
+            className="text-sm text-white/90 hover:text-white"
+          >
+            Отмена
+          </button>
+        </div>
+        <div className="absolute top-16 left-0 right-0 z-20 flex flex-col items-center">
+          <div className="text-2xl font-semibold text-white">Сканировать QR‑код</div>
+          <div className="text-sm text-slate-300 mt-1">Наведите на QR‑код для оплаты</div>
+        </div>
+        {/* Top bar retained for star rate */}
+        <div className="relative px-4 pt-[5.5rem] pb-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="h-8 w-8 rounded-xl bg-white/10 ring-1 ring-white/20 backdrop-blur-sm grid place-items-center">🔎</div>
             <div className="text-lg font-semibold tracking-tight">Сканер QR</div>
@@ -184,6 +208,23 @@ export default function Scan() {
 
             {/* Gradient fade at bottom */}
             <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-28 bg-gradient-to-t from-slate-900/80 to-transparent" />
+          </div>
+
+          {/* Flashlight button */}
+          <div className="flex justify-center mt-3">
+            <button
+              onClick={() => {
+                // Torch functionality can be implemented using getUserMedia track enabled with torch constraint.
+                // For now, just provide a haptic click.
+                try {
+                  const haptics: any = (window as any)?.Telegram?.WebApp?.HapticFeedback;
+                  haptics?.impactOccurred?.('light');
+                } catch {}
+              }}
+              className="w-12 h-12 rounded-full bg-white/10 ring-1 ring-white/20 backdrop-blur-sm text-white text-xl flex items-center justify-center"
+            >
+              🔦
+            </button>
           </div>
         </div>
 

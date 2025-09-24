@@ -1,10 +1,13 @@
 // pages/index.tsx
 import Skeleton from '../components/Skeleton';
+import useBanRedirect from '../lib/useBanRedirect';
 import Layout from "../components/Layout";
 import { Wallet, Send, Shuffle, QrCode } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 export default function Home() {
+  // Redirect to banned screen if the current user is banned
+  useBanRedirect();
   const [user, setUser] = useState<any>(null);
   const [stars, setStars] = useState<number>(0);
   const [ton, setTon] = useState<number>(0);
@@ -136,16 +139,16 @@ export default function Home() {
         {/* список активов */}
         {[
           {
-            name: "Звёзды Telegram",
+            name: 'Звёзды Telegram',
             amount: stars,
             sub: `${(stars / 2).toFixed(2)} ₽`,
-            icon: "⭐",
+            icon: '⭐',
             dim: false,
           },
           {
-            name: "TON СКОРО!",
+            name: 'TON',
             amount: ton,
-            sub: "—",
+            sub: ton > 0 ? `${(ton * 300).toFixed(2)} ₽` : '0.00 ₽',
             icon: (
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -154,15 +157,12 @@ export default function Home() {
                 className="w-5 h-5"
               />
             ),
-            dim: true,
+            dim: false,
           },
         ].map((a, i) => (
           <div
             key={i}
-            className={
-              "bg-white rounded-2xl p-4 shadow-sm flex items-center gap-3 " +
-              (a.dim ? "opacity-50" : "")
-            }
+            className="bg-white rounded-2xl p-4 shadow-sm flex items-center gap-3"
           >
             <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-xl">
               {a.icon}
@@ -173,7 +173,6 @@ export default function Home() {
             </div>
             <div className="text-right">
               <div className="font-semibold">{a.amount}</div>
-              <div className="text-xs text-slate-500"></div>
             </div>
           </div>
         ))}

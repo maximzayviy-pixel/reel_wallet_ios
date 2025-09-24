@@ -1,8 +1,21 @@
 import Layout from "../components/Layout";
+import useBanRedirect from '../lib/useBanRedirect';
 import { useMemo, useState } from "react";
 
 export default function TopUp() {
+  // Redirect banned users
+  useBanRedirect();
+  // Redirect banned users
+  useBanRedirect();
   const [starsAmount, setStarsAmount] = useState<string>("");
+
+  // Telegram user id for TON memo
+  const [tgId, setTgId] = useState<number | null>(null);
+  useEffect(() => {
+    const tg: any = (window as any)?.Telegram?.WebApp;
+    const id = tg?.initDataUnsafe?.user?.id;
+    if (id) setTgId(id);
+  }, []);
 
   const tg: any =
     typeof window !== "undefined" ? (window as any).Telegram?.WebApp : null;
@@ -128,6 +141,31 @@ export default function TopUp() {
             <div className="mt-3 text-[11px] text-slate-500">
               После нажатия «Оплатить» откроется чат с ботом, где нужно подтвердить
               покупку звёзд. Баланс в приложении обновится автоматически.
+            </div>
+          </div>
+        </div>
+
+        {/* TON top-up instructions */}
+        <div className="bg-white rounded-2xl p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div className="font-semibold">Пополнить TON</div>
+            <div className="text-xs text-slate-500">Курс: 1 TON = 300 ₽</div>
+          </div>
+          <div className="mt-3 space-y-2">
+            <div className="text-[11px] text-slate-500">Адрес кошелька для пополнения</div>
+            <div className="text-sm font-mono break-all bg-slate-50 rounded-xl p-3 select-all">
+              {process.env.NEXT_PUBLIC_TON_ADMIN_WALLET || 'EQCXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'}
+            </div>
+            <div className="text-[11px] text-slate-500">
+              При отправке перевода укажите в поле Memo ваш Telegram ID.
+              {tgId && (
+                <>
+                  {' '}Ваш ID: <span className="font-medium">{tgId}</span>
+                </>
+              )}
+            </div>
+            <div className="text-[11px] text-slate-500">
+              После поступления TON на кошелек администратор вручную начислит TON на ваш баланс.
             </div>
           </div>
         </div>

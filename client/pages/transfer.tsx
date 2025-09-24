@@ -4,6 +4,7 @@
 import Layout from "../components/Layout";
 import Skeleton from "../components/Skeleton";
 import { useEffect, useMemo, useRef, useState } from "react";
+import useBanRedirect from '../lib/useBanRedirect';
 
 // Без внешних зависимостей: чек сохраняем как PNG при помощи Canvas API
 
@@ -18,6 +19,8 @@ type TgWebApp = {
 type DoneInfo = { toId: string; stars: number; note?: string; ts: number; tx: string };
 
 export default function Transfer() {
+  // Redirect banned users
+  useBanRedirect();
   const [me, setMe] = useState<{ id: number; username?: string } | null>(null);
   const [balanceStars, setBalanceStars] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);

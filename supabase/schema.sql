@@ -6,6 +6,17 @@ create table if not exists users (
   is_banned boolean default false,
   role text default 'user',
   created_at timestamptz default now()
+  -- reason for banning a user; nullable if not banned
+  ,ban_reason text
+  -- optional message supplied by the user when appealing a ban
+  ,ban_appeal text
+  -- status of the ban/appeal. 'active' by default when a user is banned,
+  -- can be 'pending' when a user has submitted an appeal, or null when no ban
+  ,ban_status text
+  -- if true, user is restricted from performing transfers or withdrawals
+  ,wallet_restricted boolean default false
+  -- optional per‑user limit for outgoing transfers in ₽ (rubles). If null or 0 no limit applies
+  ,wallet_limit numeric
 );
 create table if not exists balances (
   user_id uuid references users(id) on delete cascade,

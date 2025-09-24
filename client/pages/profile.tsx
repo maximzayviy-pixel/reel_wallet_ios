@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import useBanRedirect from '../lib/useBanRedirect';
 import Layout from "../components/Layout";
 import Skeleton from "../components/Skeleton";
 import { createClient } from "@supabase/supabase-js";
@@ -31,6 +32,8 @@ const ADMINS_ENV = (process.env.NEXT_PUBLIC_ADMINS || "")
   .filter(Boolean);
 
 export default function Profile() {
+  // If the user is banned, redirect to the banned page
+  useBanRedirect();
   const [u, setU] = useState<TGUser | null>(null);
   const [status, setStatus] = useState("Открой через Telegram Mini App, чтобы связать профиль.");
   const [isVerified, setIsVerified] = useState<boolean>(false);
