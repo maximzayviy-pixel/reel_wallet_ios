@@ -7,6 +7,8 @@ type Task = {
   channel_username: string;
   title: string;
   reward_stars: number;
+  channel_title?: string | null;
+  avatar_url?: string | null;
 };
 
 export default function TasksCard({ tgId }: { tgId?: number }) {
@@ -25,7 +27,10 @@ export default function TasksCard({ tgId }: { tgId?: number }) {
   }, []);
 
   async function check(task: Task) {
-    if (!tgId) { alert("Не удалось определить Telegram ID пользователя"); return; }
+    if (!tgId) {
+      alert("Не удалось определить Telegram ID пользователя. Откройте мини-приложение из Telegram.");
+      return;
+    }
     setBusyId(task.id);
     try {
       const r = await fetch("/api/check-subscription", {
@@ -37,9 +42,9 @@ export default function TasksCard({ tgId }: { tgId?: number }) {
       if (j.ok && j.subscribed) {
         setResult((s) => ({ ...s, [task.id]: j.already_awarded ? "Уже получено ✅" : `+${j.stars}⭐` }));
       } else {
-        setResult((s) => ({ ...s, [task.id]: j.message || "Подписка не найдена" }));
+        setResult((s) => ({ ...s, [task.id]: j.message || "Подписка не обнаружена" }));
       }
-    } catch (e) {
+    } catch {
       setResult((s) => ({ ...s, [task.id]: "Ошибка. Попробуйте ещё раз." }));
     } finally {
       setBusyId(null);
@@ -48,7 +53,6 @@ export default function TasksCard({ tgId }: { tgId?: number }) {
 
   return (
     <div className="relative overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-100">
-      {/* фон как на витрине */}
       <div aria-hidden className="pointer-events-none absolute inset-0 opacity-[0.35]">
         <div className="absolute -top-8 left-1/2 h-80 w-80 -translate-x-1/2 rounded-full bg-violet-100 blur-3xl" />
         <div className="absolute -bottom-10 -right-10 h-72 w-72 rounded-full bg-amber-100 blur-3xl" />
@@ -67,16 +71,38 @@ export default function TasksCard({ tgId }: { tgId?: number }) {
         ) : (
           <ul className="space-y-3">
             {tasks.map((t) => (
-              <li key={t.id} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-100 p-3">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-slate-900 truncate">{t.title}</p>
-                  <p className="text-xs text-slate-500 truncate">@{t.channel_username}</p>
-                  {result[t.id] && <p className="text-xs mt-1 text-slate-600">{result[t.id]}</p>}
+              <li
+                key={t.id}
+                className="flex items-center justify-between gap-3 rounded-2xl border border-slate-100 p-3 bg-white/60"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  {/* Аватар */}
+                  {t.avatar_url ? (
+                    <img
+                      src={t.avatar_url}
+                      alt={t.title}
+                      className="h-10 w-10 rounded-full ring-1 ring-slate-200 object-cover"
+                    />
+                  ) : (
+                    <div className="h-10 w-10 rounded-full bg-slate-200 ring-1 ring-slate-200 flex items-center justify-center text-slate-600">
+                      @{t.channel_username[0]?.toUpperCase() || "?"}
+                    </div>
+                  )}
+                  {/* Названия */}
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-slate-900 truncate">
+                      {t.channel_title || t.title}
+                    </p>
+                    <p className="text-xs text-slate-500 truncate">@{t.channel_username}</p>
+                    {result[t.id] && <p className="text-xs mt-1 text-slate-600">{result[t.id]}</p>}
+                  </div>
                 </div>
+
                 <div className="flex items-center gap-2 shrink-0">
                   <Link
                     className="px-3 py-2 rounded-xl bg-slate-900 text-white text-xs"
-                    href={`https://t.me/${t.channel_username}`} target="_blank"
+                    href={`https://t.me/${t.channel_username}`}
+                    target="_blank"
                   >
                     Открыть канал
                   </Link>
@@ -85,7 +111,7 @@ export default function TasksCard({ tgId }: { tgId?: number }) {
                     disabled={busyId === t.id}
                     className="px-3 py-2 rounded-xl bg-emerald-600 text-white text-xs disabled:opacity-60"
                   >
-                    Проверить (+{t.reward_stars}⭐)
+                    {busyId === t.id ? "…" : `Проверить (+${t.reward_stars}⭐)`}
                   </button>
                 </div>
               </li>
