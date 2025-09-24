@@ -2,7 +2,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createClient } from "@supabase/supabase-js";
 
-// Локальный серверный клиент (используем service_role ключ из Vercel: SUPABASE_SERVICE_KEY)
 function createServerSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const serviceRole = process.env.SUPABASE_SERVICE_KEY!;
@@ -16,7 +15,6 @@ async function isSubscribed(tgId: number, channelUsername: string) {
   if (!resp.ok) return false;
   const json = await resp.json();
   const status = json?.result?.status;
-  // статусы: member, administrator, creator — засчитываем; left/kicked — нет
   return ["member", "administrator", "creator"].includes(status);
 }
 
@@ -28,7 +26,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const supabase = createServerSupabase();
 
-  // 1) найдём пользователя по tg_id
+  // 1) пользователь
   const { data: users } = await supabase.from("users").select("id").eq("tg_id", tg_id).limit(1);
   const user = users?.[0];
   if (!user) return res.status(404).json({ error: "Пользователь не найден" });
@@ -42,10 +40,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (tErr || !tasks?.[0]) return res.status(404).json({ error: "Задача не найдена" });
   const task = tasks[0];
 
-  // 3) проверка подписки у Telegram
+  // 3) проверка подписки
   const subscribed = await isSubscribed(Number(tg_id), task.channel_username);
   if (!subscribed) {
-    // записываем факт проверки без награды
     await supabase.from("subscription_completions").upsert(
       {
         user_id: user.id,
@@ -59,10 +56,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.json({ ok: false, subscribed: false, message: "Подписка не обнаружена" });
   }
 
-  // 4) проверим — не выдавали ли уже
+  // 4) не выдавали ли уже?
   const { data: prev } = await supabase
     .from("subscription_completions")
-    .select("id, awarded_stars, subscribed")
+    .select("id, awarded_stars")
     .eq("user_id", user.id)
     .eq("task_id", task_id)
     .limit(1);
@@ -70,18 +67,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.json({ ok: true, subscribed: true, already_awarded: true, stars: prev[0].awarded_stars });
   }
 
-  // 5) начисляем звёзды в balances
-  await supabase
-    .rpc("increment_stars_balance", { p_user_id: user.id, p_delta: task.reward_stars })
-    .catch(() => null);
+  // 5) начисляем звёзды
+  // 5.1 пробуем через RPC (если функция есть)
+  const { error: rpcErr } = await supabase.rpc("increment_stars_balance", {
+    p_user_id: user.id,
+    p_delta: task.reward_stars,
+  });
 
-  // если функции нет — сделаем простой апдейт (при необходимости подстрой под свою схему)
-  await supabase
-    .from("balances")
-    .update({ stars: task.reward_stars }) // при желании замени на логику инкремента
-    .eq("user_id", user.id);
+  // 5.2 фоллбэк: ручной инкремент (upsert + сумма)
+  if (rpcErr) {
+    const { data: bal } = await supabase
+      .from("balances")
+      .select("stars")
+      .eq("user_id", user.id)
+      .single();
+    const current = (bal?.stars as number | undefined) ?? 0;
 
-  // 6) записываем completion
+    await supabase
+      .from("balances")
+      .upsert({ user_id: user.id, stars: current + task.reward_stars }, { onConflict: "user_id" });
+  }
+
+  // 6) фиксируем completion
   await supabase.from("subscription_completions").upsert(
     {
       user_id: user.id,
