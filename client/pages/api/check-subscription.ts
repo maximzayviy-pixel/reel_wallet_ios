@@ -97,24 +97,34 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({ ok: true, subscribed: true, already_awarded: true, stars: prev[0].awarded_stars });
   }
 
-  // 5) НАЧИСЛЕНИЕ через public.ledger (минимальный набор колонок)
-  const { error: lErr } = await supabase.from("ledger").insert({
-    type_text: "stars_topup",
-    asset_amount: task.reward_stars,
-    status: "ok",
-    metadata: { source: "subscription_task", task_id },
-    tg_id: Number(tg_id),
-  } as any);
+  // 5) НАЧИСЛЕНИЕ через public.ledger (под твою схему)
+ const entry = {
+  type: "stars_topup",                 // строковый тип операции
+  amount_rub: 0,                       // NOT NULL → ставим 0, если рубли не считаешь
+  asset_amount: Number(task.reward_stars), // количество звёзд
+  rate_used: 0,                        // если курс не используется
+  amount: 0,                           // опционально (nullable), пусть будет 0
+  status: "ok",                        // у тебя встречается "ok", по умолчанию "done"
+  metadata: {
+    source: "subscription_task",
+    task_id,
+    channel: task.channel_username || null,
+    chat_id: (task as any).chat_id ?? null,
+  },
+  tg_id: Number(tg_id),
+  user_id: user.id,                    // лучше заполнять, раз есть внешний ключ
+};
 
-  if (lErr) {
-    // не падаем 500 — говорим, что подписка ок, но начисление не записалось
-    return res.status(200).json({
-      ok: false,
-      subscribed: true,
-      message: "ledger_insert_failed",
-      details: lErr.message,
-    });
-  }
+const { error: lErr } = await supabase.from("ledger").insert(entry as any);
+if (lErr) {
+  return res.status(200).json({
+    ok: false,
+    subscribed: true,
+    message: "ledger_insert_failed",
+    details: lErr.message,
+  });
+}
+
 
   // 6) фиксируем completion
   await supabase
