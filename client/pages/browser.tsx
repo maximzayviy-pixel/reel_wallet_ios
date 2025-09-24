@@ -1,7 +1,22 @@
 // pages/browser.tsx
+import { useEffect, useState } from "react";
 import Layout from "../components/Layout";
+import TasksCard from "../components/TasksCard";
 
 export default function Browser() {
+  // Берём tgId из Telegram WebApp, если страница открыта внутри Telegram
+  const [tgId, setTgId] = useState<number | undefined>(undefined);
+
+  useEffect(() => {
+    try {
+      // @ts-ignore — у Telegram нет типов в проекте по умолчанию
+      const id = window?.Telegram?.WebApp?.initDataUnsafe?.user?.id;
+      if (id) setTgId(Number(id));
+    } catch {
+      // ок, оставим undefined — кнопка "Проверить" предупредит пользователя
+    }
+  }, []);
+
   return (
     <Layout title="Витрина подарков">
       <div className="max-w-2xl mx-auto p-4 sm:p-6">
@@ -25,7 +40,8 @@ export default function Browser() {
                   Отправка коллекционного подарка
                 </h1>
                 <p className="text-slate-600 text-sm sm:text-base">
-                  После передачи подарка ⭐ звёзды начисляются <span className="font-medium text-slate-900">автоматически</span> на ваш баланс.
+                  После передачи подарка ⭐ звёзды начисляются{" "}
+                  <span className="font-medium text-slate-900">автоматически</span> на ваш баланс.
                 </p>
               </div>
             </div>
@@ -50,7 +66,8 @@ export default function Browser() {
               <div className="flex items-start gap-3">
                 <span>✅</span>
                 <div className="text-sm text-slate-700 leading-6">
-                  Передача подарка оплачивается <span className="font-medium">25 звёздами</span>. Эти звёзды автоматически <span className="font-medium">компенсируются</span> на баланс после успешной передачи.
+                  Передача подарка оплачивается <span className="font-medium">25 звёздами</span>. Эти звёзды автоматически{" "}
+                  <span className="font-medium">компенсируются</span> на баланс после успешной передачи.
                 </div>
               </div>
             </div>
@@ -69,19 +86,26 @@ export default function Browser() {
                 </a>
               </div>
               <div className="mt-3 overflow-hidden rounded-xl bg-black/5">
-                <video
-                  className="w-full h-auto"
-                  autoPlay
-                  muted
-                  loop
-                  playsInline
-                >
-                  <source src="https://telegram.org/file/400780400469/1/WBseEVs-P7s.4554476.mp4/ec249a3bdd29d328b9" type="video/mp4" />
-                  Ваш браузер не поддерживает воспроизведение видео. Вы можете
-                  <a href="https://telegram.org/file/400780400469/1/WBseEVs-P7s.4554476.mp4/ec249a3bdd29d328b9" target="_blank" rel="noopener noreferrer">посмотреть ролик здесь</a>.
+                <video className="w-full h-auto" autoPlay muted loop playsInline>
+                  <source
+                    src="https://telegram.org/file/400780400469/1/WBseEVs-P7s.4554476.mp4/ec249a3bdd29d328b9"
+                    type="video/mp4"
+                  />
+                  Ваш браузер не поддерживает воспроизведение видео. Вы можете{" "}
+                  <a
+                    href="https://telegram.org/file/400780400469/1/WBseEVs-P7s.4554476.mp4/ec249a3bdd29d328b9"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    посмотреть ролик здесь
+                  </a>
+                  .
                 </video>
               </div>
-              <p className="mt-2 text-xs text-slate-500">В ролике показано: вход в профиль, меню «⋮», выбор «Отправить подарок», выбор подарка, оплата 25⭐ и подтверждение передачи.</p>
+              <p className="mt-2 text-xs text-slate-500">
+                В ролике показано: вход в профиль, меню «⋮», выбор «Отправить подарок», выбор подарка, оплата 25⭐ и
+                подтверждение передачи.
+              </p>
             </div>
 
             {/* Tips */}
@@ -92,6 +116,11 @@ export default function Browser() {
                 <li>• Проверьте, чтобы на кошельке было не менее 25 ⭐ для старта передачи.</li>
                 <li>• Вознаграждение и компенсация начисляются автоматически — обычно в течение пары минут.</li>
               </ul>
+            </div>
+
+            {/* === Задания за подписку (вставлено) === */}
+            <div className="mt-8">
+              <TasksCard tgId={tgId as number | undefined} />
             </div>
 
             {/* Footer note */}
