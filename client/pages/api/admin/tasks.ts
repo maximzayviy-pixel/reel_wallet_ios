@@ -1,6 +1,12 @@
-// client/pages/api/admin/tasks.ts
+// pages/api/admin/tasks.ts
 import type { NextApiRequest, NextApiResponse } from "next";
-import { createServerSupabase } from "../../lib/supabaseServer";
+import { createClient } from "@supabase/supabase-js";
+
+function createServerSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const serviceRole = process.env.SUPABASE_SERVICE_KEY!; // у тебя так называется в Vercel
+  return createClient(url, serviceRole, { auth: { persistSession: false } });
+}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const supabase = createServerSupabase();
@@ -17,9 +23,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.method === "POST") {
     const { title, channel_username, reward_stars, is_active = true } = req.body || {};
     if (!title || !channel_username) return res.status(400).json({ error: "title и channel_username обязательны" });
-    const { data, error } = await supabase.from("subscription_tasks").insert({
-      title, channel_username, reward_stars: Number(reward_stars || 30), is_active
-    }).select("*").single();
+    const { data, error } = await supabase
+      .from("subscription_tasks")
+      .insert({ title, channel_username, reward_stars: Number(reward_stars || 30), is_active })
+      .select("*")
+      .single();
     if (error) return res.status(500).json({ error: error.message });
     return res.json({ task: data });
   }
@@ -27,7 +35,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.method === "PUT") {
     const { id, ...fields } = req.body || {};
     if (!id) return res.status(400).json({ error: "id обязателен" });
-    const { data, error } = await supabase.from("subscription_tasks").update(fields).eq("id", id).select("*").single();
+    const { data, error } = await supabase
+      .from("subscription_tasks")
+      .update(fields)
+      .eq("id", id)
+      .select("*")
+      .single();
     if (error) return res.status(500).json({ error: error.message });
     return res.json({ task: data });
   }
