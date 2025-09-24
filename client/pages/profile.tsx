@@ -201,12 +201,31 @@ export default function Profile() {
               </div>
 
               <div className="min-w-0">
-                <div className="text-lg font-semibold truncate">
+                {/* ✅ имя + синяя галочка при верификации */}
+                <div className="text-lg font-semibold truncate flex items-center gap-1">
                   {u
                     ? `${u.first_name ?? ""} ${u?.last_name ?? ""}`.trim() ||
                       (u.username ? `@${u.username}` : "Пользователь")
-                    : <Skeleton className="h-5 w-40" />}
+                    : <Skeleton className="h-5 w-40" />
+                  }
+
+                  {u && isVerified && (
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="w-4 h-4 text-sky-500 flex-shrink-0"
+                      viewBox="0 0 24 24"
+                      fill="currentColor"
+                      aria-label="Верифицирован"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M12 2.25a9.75 9.75 0 100 19.5 9.75 9.75 0 000-19.5zm4.03 6.97a.75.75 0 10-1.06-1.06L11 12.09l-1.97-1.97a.75.75 0 10-1.06 1.06l2.5 2.5c.3.3.79.3 1.06 0l4.5-4.5z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                  )}
                 </div>
+
                 <div className="text-sm opacity-90 truncate">
                   {u ? (u.username ? `@${u.username}` : "—") : <Skeleton className="h-4 w-24 mt-1" />}
                 </div>
@@ -237,7 +256,6 @@ export default function Profile() {
                     Верифицирован
                   </span>
                 ) : (
-                  // 🔕 кнопка покупки скрыта по задаче — вместо неё аккуратный статус
                   <span className="text-xs px-2 py-1 rounded-full bg-slate-100 text-slate-600 ring-1 ring-slate-200">
                     не верифицирован
                   </span>
