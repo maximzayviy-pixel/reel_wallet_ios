@@ -8,9 +8,14 @@ function createServerSupabase() {
   return createClient(url, serviceRole, { auth: { persistSession: false } });
 }
 
-async function isSubscribed(tgId: number, channelUsername: string) {
+async function isSubscribed(tgId: number, channelUsername?: string | null, chatId?: number | null) {
   const token = process.env.TELEGRAM_BOT_TOKEN!;
-  const url = `https://api.telegram.org/bot${token}/getChatMember?chat_id=@${channelUsername}&user_id=${tgId}`;
+  const chatRef = chatId ? chatId : (channelUsername ? `@${channelUsername}` : null);
+  if (!chatRef) return false;
+
+  const url = `https://api.telegram.org/bot${token}/getChatMember?chat_id=${encodeURIComponent(
+    String(chatRef)
+  )}&user_id=${tgId}`;
   const resp = await fetch(url);
   if (!resp.ok) return false;
   const json = await resp.json();
@@ -26,31 +31,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const supabase = createServerSupabase();
 
-  // 1) пользователь
-  const { data: users } = await supabase.from("users").select("id").eq("tg_id", tg_id).limit(1);
+  // 1) пользователь (нормализуем тип)
+  const { data: users } = await supabase.from("users").select("id, tg_id").eq("tg_id", String(tg_id)).limit(1);
   const user = users?.[0];
   if (!user) return res.status(404).json({ error: "Пользователь не найден" });
 
   // 2) задача
   const { data: tasks, error: tErr } = await supabase
     .from("subscription_tasks")
-    .select("*")
+    .select("id, channel_username, chat_id, reward_stars")
     .eq("id", task_id)
     .limit(1);
   if (tErr || !tasks?.[0]) return res.status(404).json({ error: "Задача не найдена" });
   const task = tasks[0];
 
   // 3) проверка подписки
-  const subscribed = await isSubscribed(Number(tg_id), task.channel_username);
+  const subscribed = await isSubscribed(Number(tg_id), task.channel_username, task.chat_id);
   if (!subscribed) {
     await supabase.from("subscription_completions").upsert(
-      {
-        user_id: user.id,
-        task_id,
-        subscribed: false,
-        awarded_stars: 0,
-        checked_at: new Date().toISOString(),
-      },
+      { user_id: user.id, task_id, subscribed: false, awarded_stars: 0, checked_at: new Date().toISOString() },
       { onConflict: "user_id,task_id" }
     );
     return res.json({ ok: false, subscribed: false, message: "Подписка не обнаружена" });
@@ -67,25 +66,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.json({ ok: true, subscribed: true, already_awarded: true, stars: prev[0].awarded_stars });
   }
 
-  // 5) начисляем звёзды
-  // 5.1 пробуем через RPC (если функция есть)
+  // 5) начисляем атомарно
   const { error: rpcErr } = await supabase.rpc("increment_stars_balance", {
     p_user_id: user.id,
     p_delta: task.reward_stars,
   });
-
-  // 5.2 фоллбэк: ручной инкремент (upsert + сумма)
   if (rpcErr) {
-    const { data: bal } = await supabase
-      .from("balances")
-      .select("stars")
-      .eq("user_id", user.id)
-      .single();
-    const current = (bal?.stars as number | undefined) ?? 0;
-
-    await supabase
-      .from("balances")
-      .upsert({ user_id: user.id, stars: current + task.reward_stars }, { onConflict: "user_id" });
+    return res.status(500).json({ error: "Не удалось начислить звёзды", details: rpcErr.message });
   }
 
   // 6) фиксируем completion
