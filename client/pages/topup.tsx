@@ -1,6 +1,6 @@
 import Layout from "../components/Layout";
 import useBanRedirect from '../lib/useBanRedirect';
-import { useEffect, useState } from "react"; // ← ВАЖНО: добавили хуки
+import { useEffect, useMemo, useState } from "react";
 
 export default function TopUp() {
   // Redirect banned users
