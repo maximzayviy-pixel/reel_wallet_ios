@@ -23,6 +23,9 @@ const ScanPage: React.FC = () => {
   const [torchAvailable, setTorchAvailable] = useState<boolean>(false);
   const [torchOn, setTorchOn] = useState<boolean>(false);
 
+  const [submitting, setSubmitting] = useState(false);
+  const [submitResp, setSubmitResp] = useState<any>(null);
+
   const stopScanner = useCallback(() => {
     try {
       controlsRef.current?.stop();
@@ -77,13 +80,6 @@ const ScanPage: React.FC = () => {
         base.amount = emv.amount;
       }
       base.extra = emv.additional;
-    }
-
-    if (typeof base.amount !== "number" || !base.amount || base.amount <= 0) {
-      // динамические СБП могут не нести сумму — это ок, просто покажем без суммы
-      setStatus("QR распознан");
-      setResult(base);
-      return;
     }
 
     setStatus("QR распознан");
@@ -188,6 +184,56 @@ const ScanPage: React.FC = () => {
     };
   }, [detectTorchSupport, processRaw, stopScanner, tryBarcodeDetectorFallback]);
 
+  // ---- helpers for submit ----
+  const snapshotDataUrl = async (): Promise<string | null> => {
+    try {
+      const v = videoRef.current!;
+      if (!v || !v.videoWidth || !v.videoHeight) return null;
+      const canvas = document.createElement("canvas");
+      canvas.width = v.videoWidth;
+      canvas.height = v.videoHeight;
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(v, 0, 0);
+      return canvas.toDataURL("image/jpeg", 0.9);
+    } catch {
+      return null;
+    }
+  };
+
+  const submitToServer = async () => {
+    if (!result) return;
+    setSubmitting(true);
+    setSubmitResp(null);
+    try {
+      const img = await snapshotDataUrl();
+      // tg_id возьми откуда тебе нужно; здесь — пример.
+      const tg_id = (window as any)?.Telegram?.WebApp?.initDataUnsafe?.user?.id || "debug-user";
+
+      const resp = await fetch("/api/scan-submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tg_id,
+          qr_payload: result.raw,
+          amount_rub: typeof result.amount === "number" ? result.amount : 0,
+          qr_image_b64: img || undefined,
+        }),
+      });
+
+      const j = await resp.json().catch(() => ({}));
+      setSubmitResp(j);
+      if (!resp.ok || j?.ok === false) {
+        setError(`Сервер вернул ошибку: ${j?.error || j?.reason || resp.status}`);
+      } else {
+        setError("");
+      }
+    } catch (e: any) {
+      setError(`Не удалось отправить: ${String(e)}`);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <div style={{ padding: 16 }}>
       <h1>Сканирование СБП-QR</h1>
@@ -255,6 +301,54 @@ const ScanPage: React.FC = () => {
                 ))}
               </ul>
             </>
+          )}
+
+          <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button
+              onClick={submitToServer}
+              disabled={submitting}
+              style={{
+                padding: "10px 14px",
+                borderRadius: 10,
+                border: "none",
+                background: "#4caf50",
+                color: "#fff",
+                cursor: "pointer",
+              }}
+            >
+              {submitting ? "Отправляю…" : "Отправить в оплату"}
+            </button>
+            <button
+              onClick={() => {
+                setResult(null);
+                setSubmitResp(null);
+                setStatus("Наведи камеру на QR");
+                setError("");
+              }}
+              style={{
+                padding: "10px 14px",
+                borderRadius: 10,
+                border: "1px solid #ddd",
+                background: "#fff",
+                cursor: "pointer",
+              }}
+            >
+              Сканировать ещё
+            </button>
+          </div>
+
+          {submitResp && (
+            <pre
+              style={{
+                marginTop: 12,
+                padding: 12,
+                background: "#f9f9f9",
+                borderRadius: 8,
+                overflow: "auto",
+              }}
+            >
+{JSON.stringify(submitResp, null, 2)}
+            </pre>
           )}
         </div>
       )}
