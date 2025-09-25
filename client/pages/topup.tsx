@@ -149,12 +149,12 @@ export default function TopUp() {
         <div className="bg-white rounded-2xl p-5 shadow-sm">
           <div className="flex items-center justify-between">
             <div className="font-semibold">Пополнить TON</div>
-            <div className="text-xs text-slate-500">Курс: 1 TON = 300 ₽</div>
+            <div className="text-xs text-slate-500">Курс: 1 TON = 215 ₽</div>
           </div>
           <div className="mt-3 space-y-2">
             <div className="text-[11px] text-slate-500">Адрес кошелька для пополнения</div>
             <div className="text-sm font-mono break-all bg-slate-50 rounded-xl p-3 select-all">
-              {process.env.NEXT_PUBLIC_TON_ADMIN_WALLET || 'EQCXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'}
+              {process.env.NEXT_PUBLIC_TON_ADMIN_WALLET || 'UQDIuA63KyO5wzSlonPyRBeMn8z_B62gHLJaNt9ps-CVujG7'}
             </div>
             <div className="text-[11px] text-slate-500">
               При отправке перевода укажите в поле Memo ваш Telegram ID.
@@ -165,7 +165,7 @@ export default function TopUp() {
               )}
             </div>
             <div className="text-[11px] text-slate-500">
-              После поступления TON на кошелек администратор вручную начислит TON на ваш баланс.
+              После поступления TON на кошелек в течении 5-7 минут, бот начислит TON на ваш баланс.
             </div>
           </div>
         </div>
