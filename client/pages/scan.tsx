@@ -178,7 +178,6 @@ export default function Scan() {
           </button>
         </div>
         <div className="absolute top-16 left-0 right-0 z-20 flex flex-col items-center">
-          <div className="text-2xl font-semibold text-white">Сканировать QR‑код</div>
           <div className="text-sm text-slate-300 mt-1">Наведите на QR‑код для оплаты</div>
         </div>
         {/* Top bar retained for star rate */}
