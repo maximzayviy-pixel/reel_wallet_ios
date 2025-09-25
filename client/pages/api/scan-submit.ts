@@ -103,27 +103,32 @@ async function uploadToStorageAndGetUrl(args: {
 }): Promise<string | null> {
   const { supabase, bucket, path, data, contentType } = args;
 
-  // 1) upload (overwrite=false, чтобы случайно не затирать)
   const { error: upErr } = await supabase.storage.from(bucket).upload(path, data, {
     contentType,
     upsert: false,
   });
+
   if (upErr) {
-    // если файл уже есть (409), попробуем с новой уникальной путём
-    if (upErr.statusCode !== "409" && upErr.statusCode !== 409) {
+    // проверяем код ошибки (409 = файл существует)
+    const code =
+      "status" in upErr
+        ? (upErr as any).status
+        : "statusCode" in upErr
+        ? (upErr as any).statusCode
+        : null;
+
+    if (code !== 409 && code !== "409") {
       console.error("storage upload error", upErr);
       return null;
     }
   }
 
-  // 2) получаем публичный URL (если bucket публичный)
   const { data: pub } = supabase.storage.from(bucket).getPublicUrl(path);
   if (pub?.publicUrl) return pub.publicUrl;
 
-  // 3) если бакет не публичный — делаем подписанную ссылку
   const { data: signed, error: signedErr } = await supabase.storage
     .from(bucket)
-    .createSignedUrl(path, 60 * 60 * 24); // 24h
+    .createSignedUrl(path, 60 * 60 * 24);
   if (signedErr) {
     console.error("signed url error", signedErr);
     return null;
@@ -162,7 +167,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     tg_id?: number | string;
     qr_payload?: string;
     amount_rub?: number | string;
-    qr_image_b64?: string; // data:* или http(s)://*
+    qr_image_b64?: string;
   };
 
   const amountNum = toNumber(amount_rub);
@@ -224,7 +229,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return sendJSON(res, 500, { ok: false, error: insErr.message });
   }
 
-  // 4) если прислали data:image — загружаем в storage и получаем ссылку
+  // 4) загрузка картинки
   let uploadedPhotoUrl: string | null = null;
   const isHttpUrl = typeof qr_image_b64 === "string" && /^https?:\/\//i.test(qr_image_b64);
   const isDataUrl = typeof qr_image_b64 === "string" && /^data:image\//i.test(qr_image_b64);
@@ -265,31 +270,54 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       let resp: Response;
 
       if (isHttpUrl) {
-        // если прислали http(s) ссылку на фото
         resp = await fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/sendPhoto`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ chat_id: ADMIN_TG_ID, photo: qr_image_b64, caption, parse_mode: "HTML", reply_markup: {
-            inline_keyboard: [[{ text: "✅ Оплачено", callback_data: `pay:${ins.id}` }, { text: "❌ Отказать", callback_data: `rej:${ins.id}` }]],
-          } }),
+          body: JSON.stringify({
+            chat_id: ADMIN_TG_ID,
+            photo: qr_image_b64,
+            caption,
+            parse_mode: "HTML",
+            reply_markup: {
+              inline_keyboard: [[
+                { text: "✅ Оплачено", callback_data: `pay:${ins.id}` },
+                { text: "❌ Отказать", callback_data: `rej:${ins.id}` }
+              ]],
+            },
+          }),
         });
       } else if (uploadedPhotoUrl) {
-        // data: был загружен в storage → шлём картинку по публичной/подписанной ссылке
         resp = await fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/sendPhoto`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ chat_id: ADMIN_TG_ID, photo: uploadedPhotoUrl, caption, parse_mode: "HTML", reply_markup: {
-            inline_keyboard: [[{ text: "✅ Оплачено", callback_data: `pay:${ins.id}` }, { text: "❌ Отказать", callback_data: `rej:${ins.id}` }]],
-          } }),
+          body: JSON.stringify({
+            chat_id: ADMIN_TG_ID,
+            photo: uploadedPhotoUrl,
+            caption,
+            parse_mode: "HTML",
+            reply_markup: {
+              inline_keyboard: [[
+                { text: "✅ Оплачено", callback_data: `pay:${ins.id}` },
+                { text: "❌ Отказать", callback_data: `rej:${ins.id}` }
+              ]],
+            },
+          }),
         });
       } else {
-        // нет картинки — отправляем текст
         resp = await fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/sendMessage`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ chat_id: ADMIN_TG_ID, text: caption, parse_mode: "HTML", reply_markup: {
-            inline_keyboard: [[{ text: "✅ Оплачено", callback_data: `pay:${ins.id}` }, { text: "❌ Отказать", callback_data: `rej:${ins.id}` }]],
-          } }),
+          body: JSON.stringify({
+            chat_id: ADMIN_TG_ID,
+            text: caption,
+            parse_mode: "HTML",
+            reply_markup: {
+              inline_keyboard: [[
+                { text: "✅ Оплачено", callback_data: `pay:${ins.id}` },
+                { text: "❌ Отказать", callback_data: `rej:${ins.id}` }
+              ]],
+            },
+          }),
         });
       }
 
