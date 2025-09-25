@@ -1,6 +1,6 @@
 // pages/api/scan-submit.ts
 import type { NextApiRequest, NextApiResponse } from "next";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
 // --- API config (большие QR-скриншоты в data:)
 export const config = { api: { bodyParser: { sizeLimit: "10mb" } } };
@@ -95,7 +95,7 @@ function parseDataUrl(dataUrl: string): { buffer: Buffer; contentType: string; e
 
 /** Загрузка в Supabase Storage с получением публичной (или подписанной) ссылки */
 async function uploadToStorageAndGetUrl(args: {
-  supabase: ReturnType<typeof createClient>;
+  supabase: SupabaseClient;
   bucket: string;
   path: string;
   data: Buffer;
@@ -109,7 +109,6 @@ async function uploadToStorageAndGetUrl(args: {
   });
 
   if (upErr) {
-    // проверяем код ошибки (409 = файл существует)
     const code =
       "status" in upErr
         ? (upErr as any).status
