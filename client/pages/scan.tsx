@@ -277,9 +277,9 @@ async function pay() {
           <div className="flex items-center gap-2">
             <div className="h-8 w-8 rounded-xl bg-white/10 ring-1 ring-white/20 backdrop-blur-sm grid place-items-center">🔎</div>
             <div className="text-lg font-semibold tracking-tight">Сканер QR</div>
-            </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            <div className="text-xs text-slate-300">2⭐ = 1₽</div>
             <button
               onClick={() => setPhotoOnlyOpen(true)}
               className="px-3 py-2 rounded-xl ring-1 ring-white/15 bg-white/10 hover:bg-white/20 backdrop-blur transition-colors text-sm"
@@ -289,11 +289,7 @@ async function pay() {
           </div>
         </div>
 
-          </div>
-          <div className="text-xs text-slate-300">2⭐ = 1₽</div>
-        </div>
-
-        {/* Scanner card */}
+        /* Scanner card */}
         <div className="relative px-4">
           <div className="relative overflow-hidden rounded-3xl ring-1 ring-white/10 shadow-[0_20px_60px_-20px_rgba(0,0,0,0.6)] bg-gradient-to-b from-white/5 to-white/[0.03] backdrop-blur-sm">
             <video
