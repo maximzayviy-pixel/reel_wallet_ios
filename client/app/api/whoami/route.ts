@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
-import { requireUser } from '@/lib/requireAuth';
-import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { requireUser } from '../../../../lib/requireAuth';
+import { supabaseAdmin } from '../../../../lib/supabaseAdmin';
 
 export async function GET(req: Request) {
   try {
-    // @ts-ignore NextRequest type compatible
+    // @ts-ignore NextRequest
     const { tgId, user } = await requireUser(req as any);
     const allow = (process.env.ADMIN_TG_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
     let is_admin = allow.includes(String(tgId));
