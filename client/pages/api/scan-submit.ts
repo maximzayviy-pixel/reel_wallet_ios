@@ -1,6 +1,7 @@
 // pages/api/scan-submit.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createClient } from "@supabase/supabase-js";
+import { requireUser } from "./_userAuth";
 
 export const config = { api: { bodyParser: { sizeLimit: "10mb" } } };
 
@@ -37,6 +38,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!tg_id || !qr_payload || !amount_rub) {
     return res.status(400).json({ ok: false, error: "tg_id, qr_payload, amount_rub are required" });
   }
+
+  // Authorise the caller: only allow the user themselves (or admin) to submit payment
+  if (!requireUser(req, res, tg_id)) return;
 
   // 1) user uuid
   const { data: userRow, error: userErr } = await supabase

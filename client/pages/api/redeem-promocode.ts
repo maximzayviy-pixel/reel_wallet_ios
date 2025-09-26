@@ -1,6 +1,7 @@
 // pages/api/redeem-promocode.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createClient } from "@supabase/supabase-js";
+import { requireUser } from "./_userAuth";
 
 type Body = { tg_id?: number; code?: string };
 
@@ -11,6 +12,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const normCode = (code || "").trim().toUpperCase();
 
   if (!tg_id || !normCode) return res.status(200).json({ ok: false, error: "BAD_INPUT" });
+
+  // Authorise: ensure the caller is acting on behalf of this tg_id or is admin
+  if (!requireUser(req, res, tg_id)) return;
 
   const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   const SERVICE_KEY =

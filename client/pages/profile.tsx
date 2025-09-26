@@ -168,9 +168,11 @@ export default function Profile() {
     if (!u?.id || !code.trim()) return;
     setPromoState(null);
     try {
+      // Include Telegram init data to authorise the request on the backend
+      const tgInit = typeof window !== "undefined" ? (window as any).Telegram?.WebApp?.initData : "";
       const r = await fetch("/api/redeem-promocode", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-telegram-init-data": tgInit || "" },
         body: JSON.stringify({ tg_id: u.id, code: code.trim() }),
       });
       const j = await r.json();

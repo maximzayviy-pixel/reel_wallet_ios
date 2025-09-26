@@ -2,7 +2,7 @@
 import Layout from "../components/Layout";
 import useBanRedirect from '../lib/useBanRedirect';
 import { useEffect, useRef, useState } from "react";
-import { BrowserMultiFormatReader, IScannerControls } from "@zxing/browser";
+import { BrowserMultiFormatReader, BrowserQRCodeReader, IScannerControls } from "@zxing/browser";
 import { parseEMVQR, parseSBPLink } from "../lib/emv";
 
 type ScanData = {
@@ -18,6 +18,7 @@ export default function Scan() {
   useBanRedirect();
   const videoRef = useRef<HTMLVideoElement>(null);
   const controlsRef = useRef<IScannerControls | null>(null);
+  const fallbackUsed = useRef(false);
   const [data, setData] = useState<ScanData | null>(null);
   const [sending, setSending] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
@@ -29,38 +30,81 @@ export default function Scan() {
       if (!videoRef.current) return;
       try {
         const reader = new BrowserMultiFormatReader();
+        // Prepare a dedicated QRCode reader for fallback scenarios
+        const qrReader = new BrowserQRCodeReader();
+
+        // Helper to process the raw QR value and extract payment information
+        const processRaw = (raw: string) => {
+          let rub: number | null = null;
+          let merchant = "";
+          let pan = "";
+          let city = "";
+          const sbp = parseSBPLink(raw);
+          if (sbp?.amount) rub = sbp.amount;
+          const emv = parseEMVQR(raw);
+          if (emv) {
+            merchant = emv.merchant || merchant;
+            city = emv.city || city;
+            pan = emv.account || (emv as any)?.nodes?.["26"]?.["01"] || "";
+            if (rub === null && typeof emv.amount === "number") {
+              rub = emv.amount;
+            }
+          }
+          if (!rub || rub <= 0) {
+            setError("Не удалось определить сумму из QR.");
+          } else {
+            setData({ raw, merchant, pan, city, amountRub: rub });
+          }
+        };
         const controls = await reader.decodeFromVideoDevice(
           undefined,
           videoRef.current,
-          (res, err, controls) => {
+          async (res, err, controls) => {
             if (disposed) return;
             if (res?.getText()) {
+              // Got a result via the multi-format reader
               controls.stop();
               controlsRef.current = controls;
               const raw = res.getText();
-
-              let rub: number | null = null;
-              let merchant = "",
-                pan = "",
-                city = "";
-
-              const sbp = parseSBPLink(raw);
-              if (sbp?.amount) rub = sbp.amount;
-
-              const emv = parseEMVQR(raw);
-              if (emv) {
-                merchant = emv.merchant || merchant;
-                city = emv.city || city;
-                pan = emv.account || emv?.nodes?.["26"]?.["01"] || "";
-                if (rub === null && typeof emv.amount === "number") {
-                  rub = emv.amount;
+              processRaw(raw);
+              return;
+            }
+            // When ZXing fails to decode but an error is present, attempt a fallback.
+            if (err && !fallbackUsed.current) {
+              fallbackUsed.current = true;
+              try {
+                // First try using the native BarcodeDetector API if available
+                if (typeof window !== 'undefined' && (window as any).BarcodeDetector && videoRef.current) {
+                  const detector = new (window as any).BarcodeDetector({ formats: ['qr_code'] });
+                  const barcodes = await detector.detect(videoRef.current);
+                  if (barcodes && barcodes[0] && barcodes[0].rawValue) {
+                    const raw = barcodes[0].rawValue as string;
+                    controls.stop();
+                    controlsRef.current = controls;
+                    processRaw(raw);
+                    fallbackUsed.current = false;
+                    return;
+                  }
                 }
+              } catch {
+                // ignore errors from BarcodeDetector
               }
-
-              if (!rub || rub <= 0) {
-                setError("Не удалось определить сумму из QR.");
-              } else {
-                setData({ raw, merchant, pan, city, amountRub: rub });
+              try {
+                // As a second fallback, use the dedicated QR code reader to scan once
+                if (videoRef.current) {
+                  const result = await qrReader.decodeOnceFromVideoElement(videoRef.current);
+                  const raw = result?.getText();
+                  if (raw) {
+                    controls.stop();
+                    controlsRef.current = controls;
+                    processRaw(raw);
+                  }
+                }
+              } catch {
+                // ignore failure to decode using QR code reader
+              } finally {
+                // Allow future fallback attempts if nothing was found
+                fallbackUsed.current = false;
               }
             }
           }
@@ -123,9 +167,11 @@ export default function Scan() {
         amount_rub: data.amountRub,
         qr_image_b64,
       };
+      // Attach init data for user authentication
+      const tgInit = typeof window !== "undefined" ? (window as any).Telegram?.WebApp?.initData : "";
       const res = await fetch("/api/scan-submit", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-telegram-init-data": tgInit || "" },
         body: JSON.stringify(payload),
       });
       const json = await res.json();

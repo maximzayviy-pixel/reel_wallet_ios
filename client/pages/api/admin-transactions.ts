@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { requireAdmin } from './_adminAuth';
 
 /**
  * Returns the ledger (transaction) history for a given user. Accepts
@@ -6,6 +7,8 @@ import { createClient } from '@supabase/supabase-js';
  */
 export default async function handler(req: any, res: any) {
   if (req.method !== 'GET') return res.status(405).end();
+  // Restrict access to authorised admins
+  if (!requireAdmin(req, res)) return;
   const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
   const user_id = req.query?.user_id as string | undefined;
   const limit = req.query?.limit ? parseInt(String(req.query.limit), 10) : 50;

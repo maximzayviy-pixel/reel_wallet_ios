@@ -14,11 +14,19 @@ export default function AdminTasks() {
 
   useEffect(() => { load(); }, []);
 
+  // Build admin authorisation header
+  const adminAuthHeader =
+    typeof process !== 'undefined' && process.env && process.env.NEXT_PUBLIC_ADMIN_SECRET
+      ? { Authorization: `Bearer ${process.env.NEXT_PUBLIC_ADMIN_SECRET}` }
+      : {};
+
   async function createTask() {
     setBusy(true);
     try {
       await fetch("/api/admin/tasks", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form)
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...adminAuthHeader },
+        body: JSON.stringify(form),
       });
       setForm({ title: "", channel_username: "", reward_stars: 30, is_active: true });
       await load();
@@ -29,7 +37,9 @@ export default function AdminTasks() {
     setBusy(true);
     try {
       await fetch("/api/admin/tasks", {
-        method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, ...patch })
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...adminAuthHeader },
+        body: JSON.stringify({ id, ...patch }),
       });
       await load();
     } finally { setBusy(false); }
@@ -40,7 +50,9 @@ export default function AdminTasks() {
     setBusy(true);
     try {
       await fetch("/api/admin/tasks", {
-        method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id })
+        method: "DELETE",
+        headers: { "Content-Type": "application/json", ...adminAuthHeader },
+        body: JSON.stringify({ id }),
       });
       await load();
     } finally { setBusy(false); }

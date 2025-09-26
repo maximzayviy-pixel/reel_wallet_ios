@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { requireAdmin } from './_adminAuth';
 
 /**
  * API route for administrators to manually credit TON to a user's balance.
@@ -7,6 +8,8 @@ import { createClient } from '@supabase/supabase-js';
  */
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') return res.status(405).end();
+  // Protect this endpoint: only authorised admins may credit TON balances.
+  if (!requireAdmin(req, res)) return;
   const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
   const { user_id, amount_ton } = req.body || {};
   if (!user_id || !amount_ton) return res.status(400).json({ error: 'user_id and amount_ton are required' });

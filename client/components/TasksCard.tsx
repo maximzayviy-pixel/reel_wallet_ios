@@ -42,9 +42,11 @@ export default function TasksCard({
     }
     setBusyId(task.id);
     try {
+      // Include init data header for auth
+      const tgInit = typeof window !== 'undefined' ? (window as any).Telegram?.WebApp?.initData : "";
       const r = await fetch("/api/check-subscription", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-telegram-init-data": tgInit || "" },
         body: JSON.stringify({ task_id: task.id, tg_id: tgId }),
       });
       const j = await r.json();

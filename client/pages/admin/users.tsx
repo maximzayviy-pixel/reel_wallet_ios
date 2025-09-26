@@ -37,7 +37,12 @@ export default function AdminUsers() {
   const verifyUser = async (u: any) => {
     await fetch('/api/admin-verify', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(process.env.NEXT_PUBLIC_ADMIN_SECRET
+          ? { Authorization: `Bearer ${process.env.NEXT_PUBLIC_ADMIN_SECRET}` }
+          : {}),
+      },
       body: JSON.stringify({ user_id: u.id }),
     });
     reload();
@@ -49,7 +54,12 @@ export default function AdminUsers() {
     if (!reason) return;
     await fetch('/api/admin-ban', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(process.env.NEXT_PUBLIC_ADMIN_SECRET
+          ? { Authorization: `Bearer ${process.env.NEXT_PUBLIC_ADMIN_SECRET}` }
+          : {}),
+      },
       body: JSON.stringify({ user_id: u.id, reason }),
     });
     reload();
@@ -60,7 +70,12 @@ export default function AdminUsers() {
     if (!confirm('Снять бан пользователя?')) return;
     await fetch('/api/admin-unban', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(process.env.NEXT_PUBLIC_ADMIN_SECRET
+          ? { Authorization: `Bearer ${process.env.NEXT_PUBLIC_ADMIN_SECRET}` }
+          : {}),
+      },
       body: JSON.stringify({ user_id: u.id }),
     });
     reload();
@@ -78,7 +93,12 @@ export default function AdminUsers() {
     }
     await fetch('/api/admin-set-limit', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(process.env.NEXT_PUBLIC_ADMIN_SECRET
+          ? { Authorization: `Bearer ${process.env.NEXT_PUBLIC_ADMIN_SECRET}` }
+          : {}),
+      },
       body: JSON.stringify({ user_id: u.id, wallet_limit: limit }),
     });
     reload();
@@ -88,7 +108,12 @@ export default function AdminUsers() {
   const toggleRestriction = async (u: any) => {
     await fetch('/api/admin-set-limit', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(process.env.NEXT_PUBLIC_ADMIN_SECRET
+          ? { Authorization: `Bearer ${process.env.NEXT_PUBLIC_ADMIN_SECRET}` }
+          : {}),
+      },
       body: JSON.stringify({ user_id: u.id, wallet_restricted: !u.wallet_restricted }),
     });
     reload();
@@ -105,7 +130,12 @@ export default function AdminUsers() {
     }
     await fetch('/api/admin-bonus', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(process.env.NEXT_PUBLIC_ADMIN_SECRET
+          ? { Authorization: `Bearer ${process.env.NEXT_PUBLIC_ADMIN_SECRET}` }
+          : {}),
+      },
       body: JSON.stringify({ user_id: u.id, amount_rub: amountRub }),
     });
     alert('Начислено');
@@ -123,7 +153,12 @@ export default function AdminUsers() {
     }
     await fetch('/api/admin-add-ton', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(process.env.NEXT_PUBLIC_ADMIN_SECRET
+          ? { Authorization: `Bearer ${process.env.NEXT_PUBLIC_ADMIN_SECRET}` }
+          : {}),
+      },
       body: JSON.stringify({ user_id: u.id, amount_ton: amountTon }),
     });
     alert('TON начислены');
@@ -132,7 +167,13 @@ export default function AdminUsers() {
 
   // View transaction history for a user
   const viewHistory = async (u: any) => {
-    const res = await fetch('/api/admin-transactions?user_id=' + u.id);
+    const res = await fetch('/api/admin-transactions?user_id=' + u.id, {
+      headers: {
+        ...(process.env.NEXT_PUBLIC_ADMIN_SECRET
+          ? { Authorization: `Bearer ${process.env.NEXT_PUBLIC_ADMIN_SECRET}` }
+          : {}),
+      },
+    });
     const json = await res.json().catch(() => ({}));
     if (!json?.success) {
       alert('Не удалось получить историю');

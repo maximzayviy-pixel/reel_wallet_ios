@@ -7,9 +7,11 @@ export default function InviteCodeForm({ tg_id }: { tg_id: number }) {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setStatus("loading");
+    // Include init data to authenticate the request for this tg_id
+    const tgInit = typeof window !== 'undefined' ? (window as any).Telegram?.WebApp?.initData : "";
     const res = await fetch("/api/redeem-invite", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-telegram-init-data": tgInit || "" },
       body: JSON.stringify({ tg_id, code }),
     });
     const data = await res.json();

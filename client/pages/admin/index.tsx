@@ -19,13 +19,29 @@ export default function AdminDashboard(){
         <button onClick={async()=>{
           const sum = prompt("Сколько оплачено (₽)?", String(req.amount_rub||req.max_limit_rub||0));
           if(!sum) return;
-          await fetch("/api/admin-confirm", { method:"POST", headers:{ "Content-Type":"application/json" },
-            body: JSON.stringify({ request_id: req.id, paid_amount_rub: Number(sum), admin_id: null })});
+          await fetch("/api/admin-confirm", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(process.env.NEXT_PUBLIC_ADMIN_SECRET
+                ? { Authorization: `Bearer ${process.env.NEXT_PUBLIC_ADMIN_SECRET}` }
+                : {}),
+            },
+            body: JSON.stringify({ request_id: req.id, paid_amount_rub: Number(sum), admin_id: null }),
+          });
           location.reload();
         }} className="bg-green-600 text-white px-3 py-2 rounded">Подтвердить</button>
         <button onClick={async()=>{
-          await fetch("/api/admin-reject", { method:"POST", headers:{ "Content-Type":"application/json" },
-            body: JSON.stringify({ request_id: req.id, admin_id: null })});
+          await fetch("/api/admin-reject", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(process.env.NEXT_PUBLIC_ADMIN_SECRET
+                ? { Authorization: `Bearer ${process.env.NEXT_PUBLIC_ADMIN_SECRET}` }
+                : {}),
+            },
+            body: JSON.stringify({ request_id: req.id, admin_id: null }),
+          });
           location.reload();
         }} className="bg-red-600 text-white px-3 py-2 rounded">Отклонить</button>
       </div>

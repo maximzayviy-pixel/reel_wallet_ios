@@ -1,6 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
+import { requireAdmin } from './_adminAuth';
 export default async function handler(req, res){
   if(req.method!=='POST') return res.status(405).end();
+  // Ensure only authorised admins can top up TON
+  if (!requireAdmin(req as any, res as any)) return;
   const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
   const { user_id, amount_ton } = req.body || {};
   if(!user_id || !amount_ton) return res.status(400).json({ error: "user_id and amount_ton are required" });

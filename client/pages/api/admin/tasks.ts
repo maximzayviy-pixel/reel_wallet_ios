@@ -1,6 +1,7 @@
 // pages/api/admin/tasks.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createClient } from "@supabase/supabase-js";
+import { requireAdmin } from "../_adminAuth";
 
 function createServerSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -21,6 +22,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   if (req.method === "POST") {
+    // Creating tasks should be restricted to admins
+    if (!requireAdmin(req, res)) return;
     const { title, channel_username, reward_stars, is_active = true } = req.body || {};
     if (!title || !channel_username) return res.status(400).json({ error: "title и channel_username обязательны" });
     const { data, error } = await supabase
@@ -33,6 +36,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   if (req.method === "PUT") {
+    // Updating tasks is privileged
+    if (!requireAdmin(req, res)) return;
     const { id, ...fields } = req.body || {};
     if (!id) return res.status(400).json({ error: "id обязателен" });
     const { data, error } = await supabase
@@ -46,6 +51,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   if (req.method === "DELETE") {
+    // Deleting tasks is privileged
+    if (!requireAdmin(req, res)) return;
     const { id } = req.body || {};
     if (!id) return res.status(400).json({ error: "id обязателен" });
     const { error } = await supabase.from("subscription_tasks").delete().eq("id", id);
