@@ -5,20 +5,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BrowserMultiFormatReader, IScannerControls } from "@zxing/browser";
 import { parseEMVQR, parseSBPLink } from "../lib/emv";
 
-// Uploadcare: нужен NEXT_PUBLIC_UPLOADCARE_PUBLIC_KEY
+// Uploadcare
 function dataUrlToBlob(dataUrl: string): Blob {
   const [header, base64] = dataUrl.split(",");
   const contentType = /data:(.*?);/.exec(header)?.[1] || "image/jpeg";
   const byteChars = atob(base64);
-  const byteNumbers = new Array(byteChars.length);
-  for (let i = 0; i < byteChars.length; i++) byteNumbers[i] = byteChars.charCodeAt(i);
-  return new Blob([new Uint8Array(byteNumbers)], { type: contentType });
+  const arr = new Uint8Array(byteChars.length);
+  for (let i = 0; i < byteChars.length; i++) arr[i] = byteChars.charCodeAt(i);
+  return new Blob([arr], { type: contentType });
 }
 async function uploadToUploadcare(blobOrDataUrl: Blob | string): Promise<string> {
   const pub = process.env.NEXT_PUBLIC_UPLOADCARE_PUBLIC_KEY;
   if (!pub) throw new Error("Uploadcare public key is missing (NEXT_PUBLIC_UPLOADCARE_PUBLIC_KEY)");
-
-  // поддержка как Blob, так и dataURL
   let endpoint = "https://upload.uploadcare.com/base/";
   const form = new FormData();
   form.append("UPLOADCARE_PUB_KEY", pub);
@@ -31,7 +29,6 @@ async function uploadToUploadcare(blobOrDataUrl: Blob | string): Promise<string>
   } else {
     form.append("file", blobOrDataUrl, "qr.jpg");
   }
-
   const res = await fetch(endpoint, { method: "POST", body: form });
   const json = await res.json();
   if (!res.ok || !json?.file) throw new Error("Uploadcare error");
@@ -48,7 +45,13 @@ function Dots() {
   );
 }
 
-type ScanData = { raw: string; merchant?: string; pan?: string; city?: string; amountRub: number };
+type ScanData = {
+  raw: string;
+  merchant?: string;
+  pan?: string;
+  city?: string;
+  amountRub: number;
+};
 
 export default function Scan() {
   useBanRedirect();
@@ -65,13 +68,12 @@ export default function Scan() {
   const [torchSupported, setTorchSupported] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
 
-  // fallback
-  const fallbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // fallback UI
   const [showUnrecognizedModal, setShowUnrecognizedModal] = useState(false);
   const [manualAmount, setManualAmount] = useState<string>("");
   const [fallbackUploading, setFallbackUploading] = useState(false);
 
-  // init camera + zxing
+  // start camera + ZXing
   useEffect(() => {
     let disposed = false;
     (async () => {
@@ -113,9 +115,8 @@ export default function Scan() {
                 if (rub === null && typeof emv.amount === "number") rub = emv.amount;
               }
 
-              clearFallback();
               if (!rub || rub <= 0) {
-                setShowUnrecognizedModal(true);
+                setShowUnrecognizedModal(true); // предлагаем ручной ввод
               } else {
                 setData({ raw, merchant, pan, city, amountRub: rub });
               }
@@ -123,39 +124,31 @@ export default function Scan() {
           }
         );
         controlsRef.current = controls;
-        startFallbackCountdown(); // 10s fallback
       } catch (e) {
         console.error(e);
         setStatus("Не удалось получить доступ к камере.");
       }
     })();
     return () => {
-      try { clearFallback(); controlsRef.current?.stop(); } catch {}
+      try { controlsRef.current?.stop(); } catch {}
       try { mediaStreamRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const startFallbackCountdown = () => {
-    clearFallback();
-    fallbackTimer.current = setTimeout(() => {
-      setShowUnrecognizedModal(true); // через 10 сек — ручной ввод
-    }, 10_000);
-  };
-  const clearFallback = () => { if (fallbackTimer.current) { clearTimeout(fallbackTimer.current); fallbackTimer.current = null; } };
-
-  // torch controls
+  // torch
   const applyTorch = useCallback(async (on: boolean) => {
     try {
       const stream = mediaStreamRef.current || (videoRef.current?.srcObject as MediaStream);
       const track = stream?.getVideoTracks?.()[0];
       if (!track) return false;
       const caps = track.getCapabilities?.() as MediaTrackCapabilities & { torch?: boolean };
-      if (!caps || !("torch" in caps)) return false;
+      if (!caps || !( "torch" in caps)) return false;
       await track.applyConstraints({ advanced: [{ torch: on }] as any });
       setTorchOn(on);
       return true;
-    } catch (e) { console.warn("Torch apply failed", e); return false; }
+    } catch {
+      return false;
+    }
   }, []);
   const toggleTorch = useCallback(async () => {
     const ok = await applyTorch(!torchOn);
@@ -170,21 +163,28 @@ export default function Scan() {
     const v = videoRef.current; if (!v) return null;
     const c = document.createElement("canvas");
     const w = v.videoWidth || 720, h = v.videoHeight || 1280;
-    c.width = w; c.height = h; const ctx = c.getContext("2d"); if (!ctx) return null;
+    c.width = w; c.height = h;
+    const ctx = c.getContext("2d"); if (!ctx) return null;
     ctx.drawImage(v, 0, 0, w, h);
     try { return c.toDataURL("image/jpeg", 0.92); } catch { return c.toDataURL("image/png"); }
   }, []);
 
-  const closeModal = () => { setData(null); setError(null); setStatus(null); setShowUnrecognizedModal(false); };
+  const closeModal = () => {
+    setData(null);
+    setError(null);
+    setStatus(null);
+    setShowUnrecognizedModal(false);
+  };
 
-  // обычная оплата (распознали)
+  // обычный флоу (распознано)
   async function pay() {
     if (!data) return;
     const uidRaw = typeof window !== "undefined" ? localStorage.getItem("user_id") : null;
     const tg_id = uidRaw ? Number(uidRaw) : null;
     if (!tg_id) { setStatus("Не найден tg_id (открой через Telegram WebApp)."); return; }
 
-    setSending(true); setStatus(null);
+    setSending(true);
+    setStatus(null);
     try {
       const qr_image_b64 = takeSnapshot();
       const payload: any = { tg_id, qr_payload: data.raw, amount_rub: data.amountRub, qr_image_b64 };
@@ -201,10 +201,12 @@ export default function Scan() {
       setData(null);
     } catch (e: any) {
       setStatus(`Ошибка: ${e?.message || String(e)}`);
-    } finally { setSending(false); }
+    } finally {
+      setSending(false);
+    }
   }
 
-  // фоллбек: QR не распознан — юзер ввёл сумму
+  // фоллбек: QR не распознан — ввод суммы → фото → Uploadcare → force_notify
   const sendUnrecognized = useCallback(async () => {
     const uidRaw = typeof window !== "undefined" ? localStorage.getItem("user_id") : null;
     const tg_id = uidRaw ? Number(uidRaw) : null;
@@ -214,15 +216,23 @@ export default function Scan() {
     if (!amount || amount <= 0) { setError("Укажи корректную сумму в ₽"); return; }
 
     try {
-      setFallbackUploading(true); setStatus(null);
-      const snap = takeSnapshot(); if (!snap) throw new Error("Не удалось сделать фото QR");
+      setFallbackUploading(true);
+      setStatus(null);
+
+      const snap = takeSnapshot();
+      if (!snap) throw new Error("Не удалось сделать фото QR");
       const cdnUrl = await uploadToUploadcare(dataUrlToBlob(snap));
 
-      // Отправляем заявку так же, как успешный скан:
       const resp = await fetch("/api/scan-submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tg_id, qr_payload: "FALLBACK_NO_QR", amount_rub: amount, qr_image_b64: cdnUrl })
+        body: JSON.stringify({
+          tg_id,
+          qr_payload: "FALLBACK_NO_QR",
+          amount_rub: amount,
+          qr_image_b64: cdnUrl,
+          force_notify: true, // <— важно: уведомляем админа даже при недостатке ⭐
+        }),
       });
       const json = await resp.json();
 
@@ -230,12 +240,15 @@ export default function Scan() {
         setStatus(`Ошибка отправки: ${json?.reason || json?.error || "неизвестная"}`);
         return;
       }
+
       setShowUnrecognizedModal(false);
       setStatus("⏳ Ожидаем оплату");
     } catch (e: any) {
       console.error(e);
       setStatus(`Ошибка резервной отправки: ${e?.message || String(e)}`);
-    } finally { setFallbackUploading(false); }
+    } finally {
+      setFallbackUploading(false);
+    }
   }, [manualAmount, takeSnapshot]);
 
   const stars = useMemo(
@@ -245,14 +258,30 @@ export default function Scan() {
 
   return (
     <Layout>
+      {/* фон и т.д. */}
       <div className="relative min-h-[100dvh] bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 text-slate-100">
         <div className="pointer-events-none absolute inset-0 [background:radial-gradient(60rem_60rem_at_20%_20%,rgba(37,99,235,0.12),transparent_60%),radial-gradient(40rem_40rem_at_80%_0%,rgba(16,185,129,0.12),transparent_60%),radial-gradient(50rem_50rem_at_90%_80%,rgba(168,85,247,0.10),transparent_60%)]" />
 
         {/* top bar */}
         <div className="absolute top-4 left-4 z-20">
-          <button onClick={() => { try { const tg: any = (window as any).Telegram?.WebApp; if (tg?.close) tg.close(); else window.history.back(); } catch { window.history.back(); } }} className="text-sm text-white/90 hover:text-white">Отмена</button>
+          <button
+            onClick={() => {
+              try {
+                const tg: any = (window as any).Telegram?.WebApp;
+                if (tg?.close) tg.close();
+                else window.history.back();
+              } catch {
+                window.history.back();
+              }
+            }}
+            className="text-sm text-white/90 hover:text-white"
+          >
+            Отмена
+          </button>
         </div>
-        <div className="absolute top-16 left-0 right-0 z-20 flex flex-col items-center"><div className="text-sm text-slate-300 mt-1">Наведите на QR-код для оплаты</div></div>
+        <div className="absolute top-16 left-0 right-0 z-20 flex flex-col items-center">
+          <div className="text-sm text-slate-300 mt-1">Наведите на QR-код для оплаты</div>
+        </div>
 
         {/* header */}
         <div className="relative px-4 pt-[5.5rem] pb-3 flex items-center justify-between">
@@ -263,14 +292,23 @@ export default function Scan() {
           <div className="text-xs text-slate-300">2⭐ = 1₽</div>
         </div>
 
-        {/* scanner */}
+        {/* scanner card */}
         <div className="relative px-4">
           <div className="relative overflow-hidden rounded-3xl ring-1 ring-white/10 shadow-[0_20px_60px_-20px_rgba(0,0,0,0.6)] bg-gradient-to-b from-white/5 to-white/[0.03] backdrop-blur-sm">
-            <video ref={videoRef} className="w-full aspect-[3/4] bg-black/70 object-cover rounded-3xl" playsInline muted autoPlay />
+            <video
+              ref={videoRef}
+              className="w-full aspect-[3/4] bg-black/70 object-cover rounded-3xl"
+              playsInline
+              muted
+              autoPlay
+            />
+            {/* HUD */}
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
               <div className="w-[72%] aspect-square rounded-3xl border-[3px] border-white/80 shadow-[0_0_30px_rgba(0,0,0,0.5)]" />
             </div>
+            {/* Bottom fade */}
             <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-28 bg-gradient-to-t from-slate-900/80 to-transparent" />
+            {/* status pill */}
             {!data && !error && (
               <div className="absolute bottom-3 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-full text-xs bg-black/60 ring-1 ring-white/15 backdrop-blur-md">
                 Сканирование<Dots />
@@ -282,19 +320,25 @@ export default function Scan() {
           <div className="flex justify-center gap-3 mt-3">
             <button
               onClick={toggleTorch}
-              className={`w-12 h-12 rounded-full backdrop-blur-sm text-white text-xl flex items-center justify-center ring-1 ring-white/20 ${torchOn ? "bg-amber-500/80" : "bg-white/10"}`}
+              className={`w-12 h-12 rounded-full backdrop-blur-sm text-white text-xl flex items-center justify-center ring-1 ring-white/20 ${
+                torchOn ? "bg-amber-500/80" : "bg-white/10"
+              }`}
               aria-pressed={torchOn}
               title={torchSupported ? "Вспышка" : "Вспышка недоступна"}
               disabled={!torchSupported}
             >
               🔦
             </button>
-            <button onClick={() => setShowUnrecognizedModal(true)} className="px-4 h-12 rounded-2xl bg-white/10 ring-1 ring-white/20 text-white text-sm">
+            <button
+              onClick={() => setShowUnrecognizedModal(true)}
+              className="px-4 h-12 rounded-2xl bg-white/10 ring-1 ring-white/20 text-white text-sm"
+            >
               QR не распознан
             </button>
           </div>
         </div>
 
+        {/* ожидание (по центру) */}
         {status && (
           <div className="fixed inset-0 z-40 grid place-items-center p-4">
             <div className="w-full max-w-md rounded-3xl overflow-hidden ring-1 ring-white/10 shadow-2xl bg-gradient-to-br from-indigo-600/90 to-blue-600/90 text-white">
@@ -315,7 +359,7 @@ export default function Scan() {
           </div>
         )}
 
-        {/* modal: confirm (normal flow) */}
+        {/* confirm (normal flow) */}
         {data && (
           <div className="fixed inset-0 z-50 grid place-items-center p-4">
             <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
@@ -335,7 +379,10 @@ export default function Scan() {
                   </div>
                   <div className="rounded-2xl p-3 bg-white/70 ring-1 ring-black/5 flex items-center justify-between">
                     <div className="text-slate-600">Сумма</div>
-                    <div className="text-right"><div className="text-lg font-semibold">{data.amountRub.toLocaleString("ru-RU")} ₽</div><div className="text-xs text-slate-500">{stars} ⭐</div></div>
+                    <div className="text-right">
+                      <div className="text-lg font-semibold">{data.amountRub.toLocaleString("ru-RU")} ₽</div>
+                      <div className="text-xs text-slate-500">{stars} ⭐</div>
+                    </div>
                   </div>
                   <div className="flex gap-2 justify-end pt-2">
                     <button onClick={closeModal} className="px-4 py-2 rounded-xl ring-1 ring-slate-300/70 text-slate-700 bg-white/60 hover:bg-white transition-colors">Отказаться</button>
@@ -347,7 +394,7 @@ export default function Scan() {
           </div>
         )}
 
-        {/* modal: QR не распознан → ввод суммы */}
+        {/* QR не распознан → ввод суммы */}
         {showUnrecognizedModal && (
           <div className="fixed inset-0 z-50 grid place-items-center p-4">
             <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
@@ -360,10 +407,24 @@ export default function Scan() {
                 <div className="text-sm text-slate-700">Укажи сумму оплаты, мы сделаем фото, отправим администратору и дождёмся подтверждения.</div>
                 <div className="flex items-center gap-2">
                   <div className="relative flex-1">
-                    <input value={manualAmount} onChange={(e) => setManualAmount(e.target.value)} inputMode="decimal" placeholder="Сумма, ₽" className="w-full rounded-xl px-3 py-2 ring-1 ring-slate-300/70 focus:ring-slate-400 outline-none bg-white/80" />
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">{manualAmount ? `${Math.max(0, Math.round(Number((manualAmount||"0").replace(",", "."))*2))} ⭐` : ""}</div>
+                    <input
+                      value={manualAmount}
+                      onChange={(e) => setManualAmount(e.target.value)}
+                      inputMode="decimal"
+                      placeholder="Сумма, ₽"
+                      className="w-full rounded-xl px-3 py-2 ring-1 ring-slate-300/70 focus:ring-slate-400 outline-none bg-white/80"
+                    />
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">
+                      {manualAmount ? `${Math.max(0, Math.round(Number((manualAmount||"0").replace(",", "."))*2))} ⭐` : ""}
+                    </div>
                   </div>
-                  <button onClick={sendUnrecognized} disabled={fallbackUploading} className="px-4 py-2 rounded-xl text-white disabled:opacity-60 bg-gradient-to-r from-indigo-600 to-blue-600">{fallbackUploading ? "Отправка…" : "QR не распознан"}</button>
+                  <button
+                    onClick={sendUnrecognized}
+                    disabled={fallbackUploading}
+                    className="px-4 py-2 rounded-xl text-white disabled:opacity-60 bg-gradient-to-r from-indigo-600 to-blue-600"
+                  >
+                    {fallbackUploading ? "Отправка…" : "QR не распознан"}
+                  </button>
                 </div>
                 {error && <div className="text-sm text-red-600">{error}</div>}
               </div>
