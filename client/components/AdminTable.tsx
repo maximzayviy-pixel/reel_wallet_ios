@@ -1,5 +1,8 @@
+
+// client/components/AdminTable.tsx
 import React from 'react';
 
+type SortState = { key: string; dir: 'asc'|'desc' };
 type Props = {
   rows: any[];
   loading?: boolean;
@@ -11,10 +14,15 @@ type Props = {
 };
 
 export default function AdminTable({ rows, loading, page, pageSize, total, onPageChange, onRequestSort }: Props) {
-  if (!rows || rows.length === 0) return <div className="p-4 text-gray-500">{loading ? 'Загрузка…' : 'Нет данных'}</div>;
+  if (!rows || rows.length === 0) return <div className="p-4 text-gray-500">{loading?'Загрузка…':'Нет данных'}</div>;
   const headers = Object.keys(rows[0]);
   const pages = Math.max(1, Math.ceil((total ?? rows.length) / pageSize));
-  const handleSort = (key: string) => { onRequestSort?.(key, 'asc'); };
+
+  const handleSort = (key: string) => {
+    if (!onRequestSort) return;
+    // naive toggle for demo
+    onRequestSort(key, 'asc');
+  };
 
   return (
     <div className="overflow-auto">
@@ -22,7 +30,9 @@ export default function AdminTable({ rows, loading, page, pageSize, total, onPag
         <thead>
           <tr className="text-left text-gray-600">
             {headers.map(h => (
-              <th key={h} className="px-3 py-2 border-b cursor-pointer select-none" onClick={() => handleSort(h)}>{h}</th>
+              <th key={h} className="px-3 py-2 border-b cursor-pointer select-none" onClick={() => handleSort(h)}>
+                {h}
+              </th>
             ))}
           </tr>
         </thead>
