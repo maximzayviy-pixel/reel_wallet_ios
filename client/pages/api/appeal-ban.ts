@@ -1,5 +1,4 @@
 import { createClient } from '@supabase/supabase-js';
-import { requireUser } from './_userAuth';
 
 /**
  * Allows a banned user to submit an appeal. Accepts POST body with
@@ -11,9 +10,6 @@ export default async function handler(req: any, res: any) {
   const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
   const { user_id, tg_id, appeal } = req.body || {};
   if (!appeal || !appeal.trim()) return res.status(400).json({ error: 'appeal message is required' });
-
-  // If a tg_id is provided we ensure the caller is this user (or admin)
-  if (tg_id && !requireUser(req as any, res as any, tg_id)) return;
   // Determine user id by either user_id or tg_id
   let uid = user_id;
   if (!uid && tg_id) {

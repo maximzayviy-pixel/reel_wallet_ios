@@ -1,7 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
-import { requireUser } from "./_userAuth";
 
 const PRIZES = [
   { label: "-5", value: -5, weight: 38, rarity: "обычный" },
@@ -30,12 +29,9 @@ function pickByWeight() {
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") return res.status(405).end();
 
-  // Extract tg_id from x-tg-id header (legacy) or body, and verify via Telegram init data
-  const headerId = req.headers["x-tg-id"]; // may be string or undefined
-  const bodyId = (req.body as any)?.tg_id;
-  const tg_id_raw: any = headerId !== undefined ? headerId : bodyId;
-  const tg_id = tg_id_raw !== undefined && tg_id_raw !== null ? Number(tg_id_raw) : undefined;
-  if (!requireUser(req, res, tg_id)) return;
+  // TODO: подставь свой способ аутентификации и tg_id
+  const tg_id = (req.headers["x-tg-id"] as string) || "";
+  if (!tg_id) return res.status(401).json({ error: "Unauthorized" });
 
   const supabase = createClient(
     process.env.SUPABASE_URL!,

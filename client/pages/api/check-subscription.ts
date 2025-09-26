@@ -1,6 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createClient } from "@supabase/supabase-js";
-import { requireUser } from "./_userAuth";
 
 const URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SVC = process.env.SUPABASE_SERVICE_KEY!;
@@ -45,9 +44,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const { task_id, tg_id } = req.body || {};
   if (!task_id || !tg_id) return res.status(400).json({ error: "task_id и tg_id обязательны" });
-
-  // Authorise: ensure the caller is the same user or admin.
-  if (!requireUser(req, res, tg_id)) return;
 
   const supabase = createServerSupabase();
 

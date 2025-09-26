@@ -63,8 +63,7 @@ export function parseEMVQR(raw: string): EmvNode {
   const merchant = root.nodes["59"];
   const city = root.nodes["60"];
 
-  // FIX: make account a string | undefined, not just undefined
-  let account: string | undefined = undefined;
+  let account = undefined;
   for (let i = 26; i <= 51; i++) {
     const key = String(i).padStart(2, "0");
     if (root.nodes[key]) {

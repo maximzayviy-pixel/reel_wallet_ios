@@ -1,10 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
-import { requireAdmin } from './_adminAuth';
 export default async function handler(req, res) {
   // Only allow POST requests
   if (req.method !== 'POST') return res.status(405).end();
-  // Protect banning: require admin secret
-  if (!requireAdmin(req, res)) return;
   const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
   const { user_id, reason } = req.body || {};
   if (!user_id) return res.status(400).json({ error: 'user_id is required' });

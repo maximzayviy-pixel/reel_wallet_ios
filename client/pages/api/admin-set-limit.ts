@@ -1,5 +1,4 @@
 import { createClient } from '@supabase/supabase-js';
-import { requireAdmin } from './_adminAuth';
 
 /**
  * API route to update a user's wallet restrictions and limits. Accepts
@@ -9,8 +8,6 @@ import { requireAdmin } from './_adminAuth';
  */
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') return res.status(405).end();
-  // Changing limits is an admin operation
-  if (!requireAdmin(req, res)) return;
   const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
   const { user_id, wallet_limit, wallet_restricted } = req.body || {};
   if (!user_id) return res.status(400).json({ error: 'user_id is required' });

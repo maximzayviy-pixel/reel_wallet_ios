@@ -1,7 +1,6 @@
 // pages/api/transfer-stars.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createClient } from "@supabase/supabase-js";
-import { verifyInitData } from "./_verifyInitData";
 
 export const config = { api: { bodyParser: true } };
 
@@ -40,36 +39,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   // в хедере может быть initData, но тут его не валидируем — это отдельная задача
   // const initData = req.headers["x-telegram-init-data"] as string | undefined;
-
-  // --- authorisation ---
-  // Users can transfer stars only on their own behalf.  Previously this
-  // endpoint trusted the caller to specify any `from_tg_id`, which allowed
-  // attackers to debit victims' balances by forging requests.  We now
-  // verify either an admin secret or the Telegram init data.
-  {
-    // Check for admin override via Bearer token
-    const expectedAdmin = (process.env.ADMIN_SECRET || process.env.INVOICE_SECRET || "").trim();
-    let isAdmin = false;
-    if (expectedAdmin) {
-      const headerAuth = String(req.headers["authorization"] || "");
-      const m = headerAuth.match(/^Bearer\s+(.+)/i);
-      const provided = m ? m[1] : headerAuth;
-      if (provided === expectedAdmin) isAdmin = true;
-    }
-    if (!isAdmin) {
-      const initStr = req.headers["x-telegram-init-data"] as string | undefined;
-      const botToken =
-        process.env.TELEGRAM_BOT_TOKEN ||
-        process.env.TG_BOT_TOKEN ||
-        process.env.TELEGRAM_BOT ||
-        "";
-      const info = verifyInitData(initStr, botToken);
-      const tgIdFromInit = info?.tgId;
-      if (!tgIdFromInit || String(tgIdFromInit) !== String(from_tg_id)) {
-        return bad(res, 401, "UNAUTHORIZED");
-      }
-    }
-  }
 
   // валидации
   from_tg_id = Number(from_tg_id || 0);

@@ -1,11 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
-import { requireAdmin } from './_adminAuth';
 import { notifyUser } from './_notify';
 
 export default async function handler(req, res){
   if(req.method!=='POST') return res.status(405).end();
-  // Confirming payments is an admin action
-  if (!requireAdmin(req, res)) return;
   const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
   const { request_id, paid_amount_rub, admin_id } = req.body;
   const { data, error } = await supabase.from('payment_requests')
