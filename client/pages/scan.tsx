@@ -215,11 +215,11 @@ export default function Scan() {
 
   return (
     <Layout>
-      {/* Page background */}
+      
       <div className="relative min-h-[100dvh] bg-gradient-to-br from-slate-900 via-slate-850 to-slate-800 text-slate-100">
         <div className="pointer-events-none absolute inset-0 [background:radial-gradient(60rem_60rem_at_20%_20%,rgba(37,99,235,0.12),transparent_60%),radial-gradient(40rem_40rem_at_80%_0%,rgba(16,185,129,0.12),transparent_60%),radial-gradient(50rem_50rem_at_90%_80%,rgba(168,85,247,0.10),transparent_60%)]" />
 
-        {/* Top overlay with cancel and titles */}
+        
         <div className="absolute top-4 left-4 z-20">
           <button
             onClick={() => {
@@ -239,7 +239,7 @@ export default function Scan() {
         <div className="absolute top-16 left-0 right-0 z-20 flex flex-col items-center">
           <div className="text-sm text-slate-300 mt-1">Наведите на QR‑код для оплаты</div>
         </div>
-        {/* Top bar retained for star rate */}
+        
         <div className="relative px-4 pt-[5.5rem] pb-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="h-8 w-8 rounded-xl bg-white/10 ring-1 ring-white/20 backdrop-blur-sm grid place-items-center">🔎</div>
@@ -251,7 +251,7 @@ export default function Scan() {
           </div>
         </div>
 
-        {/* Scanner card */}
+        
         <div className="relative px-4">
           <div className="relative overflow-hidden rounded-3xl ring-1 ring-white/10 shadow-[0_20px_60px_-20px_rgba(0,0,0,0.6)] bg-gradient-to-b from-white/5 to-white/[0.03] backdrop-blur-sm">
             <video
@@ -262,16 +262,16 @@ export default function Scan() {
               autoPlay
             />
 
-            {/* Framing HUD */}
+            
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
               <div className="w-[72%] aspect-square rounded-3xl border-[3px] border-white/80 shadow-[0_0_30px_rgba(0,0,0,0.5)]" />
             </div>
 
-            {/* Gradient fade at bottom */}
+            
             <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-28 bg-gradient-to-t from-slate-900/80 to-transparent" />
           </div>
 
-          {/* Flashlight button */}
+          
           <div className="flex justify-center mt-3">
             <button
               onClick={() => {
@@ -289,17 +289,17 @@ export default function Scan() {
           </div>
         </div>
 
-        {/* Inline status text */}
+        
         {status && (
           <div className="relative px-4 mt-3 text-sm text-slate-200/90">
             {status}
           </div>
         )}
 
-        {/* Payment confirmation modal */}
+        
         {data && (
           <div className="fixed inset-0 z-50 grid place-items-center p-4">
-            {/* Overlay with soft gradient */}
+            
             <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
             <div className="absolute inset-0 [background:radial-gradient(35rem_35rem_at_50%_0%,rgba(59,130,246,0.25),transparent_60%),radial-gradient(30rem_30rem_at_20%_80%,rgba(99,102,241,0.25),transparent_60%)]" />
 
@@ -364,7 +364,7 @@ export default function Scan() {
         )}
 
         {
-        {/* Photo-only modal */}
+        
         {photoOnlyOpen && (
           <div className="fixed inset-0 z-50 grid place-items-center p-4">
             <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setPhotoOnlyOpen(false)} />
