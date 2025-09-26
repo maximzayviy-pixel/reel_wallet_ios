@@ -1,4 +1,4 @@
-import { requirn }eAdmi from  '../../../../../lib/requireAuth'
+import { requireAdmin } from '../../../../../../lib/requireAuth'
 import { createClient } from '@supabase/supabase-js'
 
 const service = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE!)
