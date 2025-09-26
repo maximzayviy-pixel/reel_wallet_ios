@@ -1,6 +1,7 @@
 
 import React from 'react';
 import AdminGuard from '../../components/AdminGuard';
+import AdminNav from '../../components/AdminNav';
 import AdminTable from '../../components/AdminTable';
 
 export default function AdminPromocodes() {
@@ -40,7 +41,7 @@ export default function AdminPromocodes() {
   };
 
   return (<AdminGuard>
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="p-6 max-w-6xl mx-auto">\n      <AdminNav />
       <h1 className="text-xl font-bold mb-4">Promocodes</h1>
 
       <div className="bg-white rounded-2xl shadow p-4 mb-6">

@@ -1,5 +1,6 @@
 import React from 'react';
 import AdminGuard from '../../components/AdminGuard';
+import AdminNav from '../../components/AdminNav';
 import AdminTable from '../../components/AdminTable';
 
 export default function AdminBalances() {
@@ -23,7 +24,7 @@ export default function AdminBalances() {
   React.useEffect(()=>{ load(page); }, [page, load]);
 
   return (<AdminGuard>
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="p-6 max-w-6xl mx-auto">\n      <AdminNav />
       <h1 className="text-xl font-bold mb-4">Балансы</h1>
       <AdminTable rows={rows} page={page} pageSize={pageSize} total={total} loading={loading} onPageChange={setPage} />
     </div>
