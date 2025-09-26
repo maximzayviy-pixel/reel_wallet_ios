@@ -1,29 +1,18 @@
-import type { NextRequest } from "next/server";
-import { NextResponse } from "next/server";
-
-const ADMIN_PATHS = ["/admin"];
+import { NextRequest, NextResponse } from 'next/server';
 
 export function middleware(req: NextRequest) {
-  const { pathname, searchParams } = req.nextUrl;
+  const { pathname } = req.nextUrl;
 
-  // Apply only to /admin paths
-  if (!ADMIN_PATHS.some(p => pathname === p || pathname.startsWith(p + "/"))) {
-    return NextResponse.next();
+  if (pathname.startsWith('/admin')) {
+    const ok = req.cookies.get('tg_admin')?.value === '1';
+    if (!ok) {
+      const url = req.nextUrl.clone();
+      url.pathname = '/admin/forbidden';
+      url.search = '';
+      return NextResponse.rewrite(url, { status: 403 });
+    }
   }
-
-  // If not in Telegram, block with pretty page
-  const tgId = req.headers.get("x-telegram-user-id") || searchParams.get("tg_id");
-  const inTelegram = req.headers.get("x-telegram-miniapp") === "1" || req.headers.get("sec-fetch-site") === "same-origin"; // soft signal
-  if (!tgId || !inTelegram) {
-    const url = req.nextUrl.clone();
-    url.pathname = "/admin/forbidden";
-    url.search = "";
-    return NextResponse.rewrite(url, { status: 403 });
-  }
-
   return NextResponse.next();
 }
 
-export const config = {
-  matcher: ["/admin", "/admin/:path*"],
-};
+export const config = { matcher: ['/admin/:path*'] };

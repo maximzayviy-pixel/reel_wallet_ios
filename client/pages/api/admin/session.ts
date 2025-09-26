@@ -1,15 +1,14 @@
-import type { NextApiRequest, NextApiResponse } from "next";
-import { ensureIsAdmin } from "../../../lib/admin";
+import type { NextApiRequest, NextApiResponse } from 'next';
+import { requireAdmin } from './_guard';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  try {
-    const { tgId } = await ensureIsAdmin(req as any);
-    res.status(200).json({ ok: true, tgId });
-  } catch (e:any) {
-    if (e instanceof Response) {
-      const text = await e.text();
-      return res.status(e.status || 500).send(text);
-    }
-    res.status(403).json({ ok:false });
-  }
+  const user = await requireAdmin(req, res);
+  if (!user) return;
+
+  // 24 часа, HttpOnly, подходит для webview Telegram (SameSite=None; Secure)
+  res.setHeader(
+    'Set-Cookie',
+    'tg_admin=1; Path=/; Max-Age=86400; HttpOnly; Secure; SameSite=None'
+  );
+  res.status(200).json({ ok: true, user: { id: user.id, tg_id: user.tg_id, role: user.role } });
 }
