@@ -7,7 +7,6 @@ export const config = {
 
 export function middleware(req: NextRequest) {
   const auth = req.headers.get('authorization') || '';
-  // Require Telegram Mini App auth header presence. Real signature verification happens in API handlers.
   if (!auth.startsWith('tma ')) {
     const isApi = req.nextUrl.pathname.startsWith('/api/');
     if (isApi) {

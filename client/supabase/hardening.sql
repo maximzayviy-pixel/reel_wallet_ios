@@ -1,9 +1,6 @@
--- === Enable RLS and add basic policies (adjust to your schema as needed) ===
-
--- USERS
+-- See repo root README for context; run this in Supabase SQL editor after deploy.
 alter table if exists public.users enable row level security;
 
--- Read self
 do $$ begin
   if not exists (
     select 1 from pg_policies where schemaname = 'public' and tablename = 'users' and policyname = 'users_read_self'
@@ -13,8 +10,6 @@ do $$ begin
   end if;
 end $$;
 
--- Update: allow self to update safe columns only (adapt in app logic; here we allow all, but expect server-only admin updates)
--- You should tailor this to your column list.
 do $$ begin
   if not exists (
     select 1 from pg_policies where schemaname = 'public' and tablename = 'users' and policyname = 'users_update_self_safe'
@@ -24,10 +19,8 @@ do $$ begin
   end if;
 end $$;
 
--- SUBSCRIPTION TASKS (example table name; adjust if different)
 alter table if exists public.subscription_tasks enable row level security;
 
--- Only admins can write (expects 'role' in JWT; for service role this is bypassed anyway)
 do $$ begin
   if not exists (
     select 1 from pg_policies where schemaname = 'public' and tablename = 'subscription_tasks' and policyname = 'tasks_admin_write'
@@ -39,7 +32,6 @@ do $$ begin
   end if;
 end $$;
 
--- === Balance ledger & adjust function ===
 create table if not exists public.balance_ledger (
   id bigserial primary key,
   user_id uuid not null references public.users(id),
@@ -55,5 +47,3 @@ begin
   update public.users set balance_rub = coalesce(balance_rub, 0) + p_delta where id = p_user;
 end;
 $$;
-
-comment on function public.adjust_balance(uuid, integer, text) is 'Admin/server-only balance adjustment with ledger entry.';
