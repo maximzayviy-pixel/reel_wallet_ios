@@ -1,19 +1,14 @@
-import type { NextApiRequest, NextApiResponse } from 'next';
-import { createClient } from '@supabase/supabase-js';
-import { requireAdmin } from './_guard';
+import type { NextApiRequest, NextApiResponse } from "next";
+import list, { ListOptions } from "./_list";
 
-const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
+const opts: ListOptions = {
+  table: "webhook_logs",
+  columns: "id,event,status,payload,created_at",
+  searchCols: ["event","status","payload"]
+};
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const admin = await requireAdmin(req, res);
-  if (!admin) return;
-  const limit = Math.min(parseInt(String(req.query.limit||'50'),10), 200);
-  const offset = Math.max(parseInt(String(req.query.offset||'0'),10), 0);
-  const { data, error, count } = await supabase
-    .from('webhook_logs')
-    .select('id, type, status, payload, created_at', { count: 'exact' })
-    .order('created_at', { ascending: false })
-    .range(offset, offset + limit - 1);
-  if (error) return res.status(400).json({ error });
-  res.json({ ok: true, rows: data, total: count });
+export default function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method === "GET") return list(req, res, opts);
+  res.setHeader("Allow", "GET");
+  res.status(405).end();
 }

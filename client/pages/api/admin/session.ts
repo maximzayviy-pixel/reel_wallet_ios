@@ -1,10 +1,15 @@
-
-import type { NextApiRequest, NextApiResponse } from 'next';
-import { requireAdmin } from './_guard';
+import type { NextApiRequest, NextApiResponse } from "next";
+import { ensureIsAdmin } from "../../../lib/admin";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const user = await requireAdmin(req, res);
-  if (!user) return;
-  res.setHeader('Set-Cookie', `tg_admin=1; Path=/; Max-Age=${60*60*24}; HttpOnly; Secure; SameSite=Lax`);
-  res.json({ ok: true });
+  try {
+    const { tgId } = await ensureIsAdmin(req as any);
+    res.status(200).json({ ok: true, tgId });
+  } catch (e:any) {
+    if (e instanceof Response) {
+      const text = await e.text();
+      return res.status(e.status || 500).send(text);
+    }
+    res.status(403).json({ ok:false });
+  }
 }

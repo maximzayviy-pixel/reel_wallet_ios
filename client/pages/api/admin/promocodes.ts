@@ -4,9 +4,9 @@ import { ensureIsAdmin } from "../../../lib/admin";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 
 const opts: ListOptions = {
-  table: "ledger",
-  columns: "id,tg_id,amount,currency,reason,created_at",
-  searchCols: ["tg_id","reason"]
+  table: "promocodes",
+  columns: "id,code,amount,currency,uses_left,created_at",
+  searchCols: ["code","currency"]
 };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -14,12 +14,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.method === "POST") {
     try {
       await ensureIsAdmin(req as any);
-      const { tg_id, amount, currency="RUB", reason="admin_adjustment" } = req.body || {};
-      if (!tg_id || !amount) return res.status(400).json({ ok:false, error:"tg_id and amount required" });
-
-      const { error } = await supabaseAdmin.rpc("admin_credit_balance", { p_tg_id: tg_id, p_amount: amount, p_currency: currency, p_reason: reason });
+      const { code, amount, currency, uses=1 } = req.body || {};
+      if (!code || !amount || !currency) return res.status(400).json({ ok:false, error:"code, amount, currency required" });
+      const { error } = await supabaseAdmin.from("promocodes").insert({ code, amount, currency, uses_left: uses });
       if (error) return res.status(400).json({ ok:false, error: error.message });
-
       return res.status(200).json({ ok:true });
     } catch (e:any) {
       if (e instanceof Response) {

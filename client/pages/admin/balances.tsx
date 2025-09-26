@@ -1,32 +1,23 @@
-import React from 'react';
-import AdminGuard from '../../components/AdminGuard';
-import AdminNav from '../../components/AdminNav';
-import AdminTable from '../../components/AdminTable';
+import AdminGuard from "../../components/AdminGuard";
+import AdminTable from "../../components/AdminTable";
 
-export default function AdminBalances() {
-  const [rows, setRows] = React.useState<any[]>([]);
-  const [page, setPage] = React.useState(0);
-  const pageSize = 50;
-  const [loading, setLoading] = React.useState(false);
-  const [total, setTotal] = React.useState<number|undefined>(undefined);
-
-  const load = React.useCallback(async (p:number)=>{
-    setLoading(true);
-    const tg:any = (window as any).Telegram?.WebApp;
-    const initData = tg?.initData || '';
-    const r = await fetch('/api/admin/balances?limit='+pageSize+'&offset='+(p*pageSize), { headers: { 'x-telegram-init-data': initData } });
-    const j = await r.json();
-    setRows(j.rows || []);
-    setTotal(j.total || undefined);
-    setLoading(false);
-  }, []);
-
-  React.useEffect(()=>{ load(page); }, [page, load]);
-
-  return (<AdminGuard>
-    <div className="p-6 max-w-6xl mx-auto">\n      <AdminNav />
-      <h1 className="text-xl font-bold mb-4">Балансы</h1>
-      <AdminTable rows={rows} page={page} pageSize={pageSize} total={total} loading={loading} onPageChange={setPage} />
-    </div>
-  </AdminGuard>);
+export default function AdminBalances(){
+  return (
+    <AdminGuard>
+      <div className="max-w-6xl mx-auto p-6 space-y-4">
+        <h1 className="text-xl font-semibold">Balances (ledger)</h1>
+        <AdminTable
+          fetchUrl="/api/admin/balances"
+          columns={[
+            { key: "id", title: "ID" },
+            { key: "tg_id", title: "TG" },
+            { key: "amount", title: "Сумма" },
+            { key: "currency", title: "Валюта" },
+            { key: "reason", title: "Причина" },
+            { key: "created_at", title: "Создано" },
+          ]}
+        />
+      </div>
+    </AdminGuard>
+  );
 }
