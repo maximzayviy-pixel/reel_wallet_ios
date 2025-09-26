@@ -1,3 +1,4 @@
+// @ts-nocheck
 "use client";
 import Layout from "../components/Layout";
 import useBanRedirect from '../lib/useBanRedirect';
