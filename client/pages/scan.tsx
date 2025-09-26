@@ -1,27 +1,36 @@
-// @ts-nocheck
 "use client";
 import Layout from "../components/Layout";
 import useBanRedirect from '../lib/useBanRedirect';
 import { useEffect, useRef, useState } from "react";
-import React from "react";
 import { BrowserMultiFormatReader, IScannerControls } from "@zxing/browser";
 import { parseEMVQR, parseSBPLink } from "../lib/emv";
 
 const UPLOADCARE_PUB = process.env.NEXT_PUBLIC_UPLOADCARE_PUBLIC_KEY || "";
 
+function dataUrlToBlob(dataUrl: string): Blob {
+  const [head, body] = dataUrl.split(',');
+  const mime = (head.match(/data:(.*?);/) || [,'image/jpeg'])[1];
+  const bin = atob(body);
+  const len = bin.length;
+  const u8 = new Uint8Array(len);
+  for (let i = 0; i < len; i++) u8[i] = bin.charCodeAt(i);
+  return new Blob([u8], { type: mime });
+}
 
-async function uploadToUploadcare(blob: Blob): Promise<string> {
+async function uploadToUploadcareFromDataUrl(dataUrl: string): Promise<string> {
   if (!UPLOADCARE_PUB) throw new Error("UPLOADCARE public key not set (NEXT_PUBLIC_UPLOADCARE_PUBLIC_KEY)");
   const form = new FormData();
   form.append("UPLOADCARE_PUB_KEY", UPLOADCARE_PUB);
   form.append("UPLOADCARE_STORE", "1");
-  form.append("file", blob, "qr.jpg");
+  form.append("file", dataUrlToBlob(dataUrl), "qr.jpg");
   const res = await fetch("https://upload.uploadcare.com/base/", { method: "POST", body: form });
   if (!res.ok) throw new Error("Uploadcare upload failed");
   const json = await res.json().catch(() => null);
-  if (!json || !json.file) throw new Error("Uploadcare returned bad response");
+  if (!json || !json.file) throw new Error("Uploadcare bad response");
   return `https://ucarecdn.com/${json.file}/`;
 }
+
+
 type ScanData = {
   raw: string;
   merchant?: string;
@@ -40,7 +49,6 @@ export default function Scan() {
   const [status, setStatus] = useState<string | null>(null);
   const [photoOnlyOpen, setPhotoOnlyOpen] = useState(false);
   const [photoAmount, setPhotoAmount] = useState<string>("");
-
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -104,31 +112,18 @@ export default function Scan() {
     if (!v) return null;
     const canvas = document.createElement("canvas");
     const w = v.videoWidth || 720;
-    
-  const takeSnapshot = async (): Promise<{ dataUrl: string; blob: Blob }> => {
-    const v = videoRef.current;
-    if (!v) throw new Error("Камера не активна");
-    const canvas = document.createElement("canvas");
-    const w = v.videoWidth || 720;
     const h = v.videoHeight || 1280;
     canvas.width = w;
     canvas.height = h;
     const ctx = canvas.getContext("2d");
-    if (!ctx) throw new Error("Нет контекста canvas");
+    if (!ctx) return null;
     ctx.drawImage(v, 0, 0, w, h);
-    const dataUrl = (() => {
-      try {
-        return canvas.toDataURL("image/jpeg", 0.92);
-      } catch {
-        return canvas.toDataURL("image/png");
-      }
-    })();
-    const blob: Blob = await new Promise((resolve, reject) => {
-      canvas.toBlob((b) => b ? resolve(b) : reject(new Error("toBlob failed")), "image/jpeg", 0.92);
-    });
-    return { dataUrl, blob };
+    try {
+      return canvas.toDataURL("image/jpeg", 0.92);
+    } catch {
+      return canvas.toDataURL("image/png");
+    }
   };
-
 
   const closeModal = () => {
     setData(null);
@@ -136,42 +131,22 @@ export default function Scan() {
     setStatus(null);
   };
 
-  
   async function photoOnlySend() {
     const uidRaw = typeof window !== "undefined" ? localStorage.getItem("user_id") : null;
     const tg_id = uidRaw ? Number(uidRaw) : null;
-    if (!tg_id) {
-      setStatus("Не найден tg_id (открой через Telegram WebApp).");
-      return;
-    }
-    const amount_rub = Number(photoAmount.replace(",", "."));
-    if (!amount_rub || isNaN(amount_rub)) {
-      setStatus("Введите корректную сумму.");
-      return;
-    }
+    if (!tg_id) { setStatus("Не найден tg_id (открой через Telegram WebApp)."); return; }
+    const amount_rub = Number((photoAmount || "").replace(",", "."));
+    if (!amount_rub || isNaN(amount_rub)) { setStatus("Введите корректную сумму."); return; }
     setSending(true);
     setStatus(null);
     try {
-      const snap = await takeSnapshot();
-      let qr_image_b64: string = snap.dataUrl;
+      const snap = takeSnapshot();
+      let qr_image_b64 = snap;
       try {
-        setStatus("Загружаю фото на Uploadcare...");
-        const cdnUrl = await uploadToUploadcare(snap.blob);
-        qr_image_b64 = cdnUrl;
-      } catch (e) {
-        console.warn("Uploadcare failed, fallback to base64", e);
-      }
-      const payload: any = {
-        tg_id,
-        qr_payload: `photo_only:${Date.now()}`, // заполнитель, сервер примет строку
-        amount_rub,
-        qr_image_b64,
-      };
-      const res = await fetch("/api/scan-submit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+        if (snap) { qr_image_b64 = await uploadToUploadcareFromDataUrl(snap); }
+      } catch (_) {}
+      const payload: any = { tg_id, qr_payload: `photo_only:${Date.now()}`, amount_rub, qr_image_b64 };
+      const res = await fetch("/api/scan-submit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const json = await res.json();
       if (!res.ok || !json?.ok) {
         setStatus(`Ошибка: ${json?.reason || json?.error || "неизвестная"}`);
@@ -185,7 +160,9 @@ export default function Scan() {
       setSending(false);
     }
   }
-async function pay() {
+
+
+  async function pay() {
     if (!data) return;
     const uidRaw =
       typeof window !== "undefined" ? localStorage.getItem("user_id") : null;
@@ -198,17 +175,7 @@ async function pay() {
     setSending(true);
     setStatus(null);
     try {
-      
-      const snap = await takeSnapshot();
-      let qr_image_b64: string = snap.dataUrl;
-      try {
-        setStatus("Загружаю фото на Uploadcare...");
-        const cdnUrl = await uploadToUploadcare(snap.blob);
-        qr_image_b64 = cdnUrl; // сервер уже умеет http(s) URL
-      } catch (e) {
-        console.warn("Uploadcare failed, fallback to base64", e);
-      }
-
+      const qr_image_b64 = takeSnapshot();
       const payload: any = {
         tg_id,
         qr_payload: data.raw,
@@ -280,16 +247,11 @@ async function pay() {
           </div>
           <div className="flex items-center gap-3">
             <div className="text-xs text-slate-300">2⭐ = 1₽</div>
-            <button
-              onClick={() => setPhotoOnlyOpen(true)}
-              className="px-3 py-2 rounded-xl ring-1 ring-white/15 bg-white/10 hover:bg-white/20 backdrop-blur transition-colors text-sm"
-            >
-              📸 Фото QR
-            </button>
+            <button onClick={() => setPhotoOnlyOpen(true)} className="px-3 py-2 rounded-xl ring-1 ring-white/20 bg-white/10 hover:bg-white/20 backdrop-blur text-sm">📸 Фото QR</button>
           </div>
         </div>
 
-        /* Scanner card */
+        {/* Scanner card */}
         <div className="relative px-4">
           <div className="relative overflow-hidden rounded-3xl ring-1 ring-white/10 shadow-[0_20px_60px_-20px_rgba(0,0,0,0.6)] bg-gradient-to-b from-white/5 to-white/[0.03] backdrop-blur-sm">
             <video
@@ -401,8 +363,7 @@ async function pay() {
           </div>
         )}
 
-        {/* Error modal */
-        }
+        {
         {/* Photo-only modal */}
         {photoOnlyOpen && (
           <div className="fixed inset-0 z-50 grid place-items-center p-4">
@@ -411,18 +372,10 @@ async function pay() {
               <div className="bg-gradient-to-br from-white/85 to-white/70 text-slate-900 backdrop-blur-xl">
                 <div className="p-4 border-b border-white/40 flex items-center justify-between">
                   <div className="text-base font-semibold">Отправить фото QR</div>
-                  <button
-                    onClick={() => setPhotoOnlyOpen(false)}
-                    className="text-slate-600 hover:text-slate-800 transition-colors"
-                    aria-label="Закрыть"
-                  >
-                    ✕
-                  </button>
+                  <button onClick={() => setPhotoOnlyOpen(false)} className="text-slate-600 hover:text-slate-800 transition-colors" aria-label="Закрыть">✕</button>
                 </div>
                 <div className="p-4 space-y-4">
-                  <div className="text-sm text-slate-700">
-                    Если сканер не распознал QR (например, на ИПТ Kozen P12), вы можете отправить фото кода администратору.
-                  </div>
+                  <div className="text-sm text-slate-700">Если сканер не распознал QR (например, на ИПТ Kozen P12), вы можете отправить фото кода администратору.</div>
                   <label className="block text-sm font-medium text-slate-700">Сумма (₽)</label>
                   <input
                     value={photoAmount}
@@ -432,26 +385,17 @@ async function pay() {
                     className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500"
                   />
                   <div className="flex items-center justify-end gap-3 pt-2">
-                    <button
-                      onClick={() => setPhotoOnlyOpen(false)}
-                      className="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800"
-                    >
-                      Отмена
-                    </button>
-                    <button
-                      onClick={photoOnlySend}
-                      disabled={sending}
-                      className="px-5 py-2 rounded-xl text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow"
-                    >
-                      {sending ? "Отправка..." : "Отправить фото"}
-                    </button>
+                    <button onClick={() => setPhotoOnlyOpen(false)} className="px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800">Отмена</button>
+                    <button onClick={photoOnlySend} disabled={sending} className="px-5 py-2 rounded-xl text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow">{sending ? "Отправка..." : "Отправить фото"}</button>
                   </div>
                 </div>
               </div>
             </div>
           </div>
         )}
-{error && (
+
+        /* Error modal */}
+        {error && (
           <div className="fixed inset-0 z-50 grid place-items-center p-4">
             <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
             <div className="relative w-full max-w-md rounded-3xl overflow-hidden ring-1 ring-white/15 shadow-2xl">
@@ -484,7 +428,4 @@ async function pay() {
       </div>
     </Layout>
   );
-}
-
-
 }
