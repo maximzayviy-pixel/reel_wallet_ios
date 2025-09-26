@@ -3,27 +3,16 @@ import list, { ListOptions } from "./_list";
 import { requireAdmin } from "./_guard";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 
+// ⚠️ Жёстко убираем колонку currency из GET, чтобы не падало на схемах без неё.
+const opts: ListOptions = {
+  table: "ledger",
+  columns: "id,tg_id,amount,reason,created_at",
+  searchCols: ["tg_id","reason"]
+};
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === "GET") {
-    try {
-      const optsWith: ListOptions = {
-        table: "ledger",
-        columns: "id,tg_id,amount,currency,reason,created_at",
-        searchCols: ["tg_id","reason","currency"],
-      };
-      return await list(req, res, optsWith);
-    } catch (e: any) {
-      const msg = String(e?.message || "");
-      if (msg.includes("column ledger.currency does not exist") || msg.includes("column \"currency\" does not exist")) {
-        const optsWithout: ListOptions = {
-          table: "ledger",
-          columns: "id,tg_id,amount,reason,created_at",
-          searchCols: ["tg_id","reason"],
-        };
-        return await list(req, res, optsWithout);
-      }
-      throw e;
-    }
+    return list(req, res, opts);
   }
 
   if (req.method === "POST") {

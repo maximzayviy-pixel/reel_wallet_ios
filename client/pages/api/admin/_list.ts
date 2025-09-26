@@ -8,16 +8,14 @@ export type ListOptions = {
   searchCols?: string[];  // columns to OR-search with ilike
 };
 
-function buildSelect(opts: ListOptions, includeCurrency: boolean) {
+function buildSelect(opts: ListOptions, skipCurrency: boolean) {
   const cols = opts.columns
     .split(",")
     .map(s => s.trim())
     .filter(Boolean)
-    .filter(c => includeCurrency ? true : c !== "currency")
+    .filter(c => (skipCurrency ? c !== "currency" : true))
     .join(",");
-
-  const searchCols = (opts.searchCols || []).filter(c => includeCurrency ? true : c !== "currency");
-
+  const searchCols = (opts.searchCols || []).filter(c => (skipCurrency ? c !== "currency" : true));
   return { cols, searchCols };
 }
 
@@ -35,11 +33,9 @@ export default async function listHandler(
     const sort = String(req.query.sort || "created_at.desc");
     const q = String(req.query.q || "").trim();
 
-    const attempt = async (includeCurrency: boolean) => {
-      const cfg = buildSelect(opts, includeCurrency);
-      let select = supabaseAdmin
-        .from(opts.table)
-        .select(cfg.cols, { count: "exact" });
+    const attempt = async (skipCurrency: boolean) => {
+      const cfg = buildSelect(opts, skipCurrency);
+      let select = supabaseAdmin.from(opts.table).select(cfg.cols, { count: "exact" });
 
       if (q && cfg.searchCols.length) {
         const pattern = "%" + q + "%";
@@ -59,23 +55,19 @@ export default async function listHandler(
       return { data, error, count };
     };
 
-    // First attempt with all requested columns
-    let { data, error, count } = await attempt(true);
+    // 1st try: as requested
+    let { data, error, count } = await attempt(false);
 
     if (error) {
       const msg = String(error.message || "");
-      const missingCurrency =
-        msg.includes("column ledger.currency does not exist") ||
-        msg.includes('column "currency" does not exist') ||
-        msg.includes("column currency does not exist");
-
-      if (missingCurrency) {
-        const retry = await attempt(false);
+      const mightBeMissingColumn = /does not exist/i.test(msg) && /column/i.test(msg);
+      const mentionsCurrency = /currency/i.test(msg);
+      if (mightBeMissingColumn || mentionsCurrency) {
+        const retry = await attempt(true);
         if (!retry.error) {
           return res.status(200).json({ ok: true, items: retry.data || [], total: retry.count ?? (retry.data?.length ?? 0) });
         }
       }
-
       return res.status(400).json({ ok: false, error: error.message });
     }
 
