@@ -30,7 +30,7 @@ type ScanData = {
   amountRub: number;
 };
 
-const Scan: React.FC = () => {
+export default function Scan(): React.ReactElement {
   // Redirect banned users to banned page
   useBanRedirect();
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -490,4 +490,3 @@ async function pay() {
   );
 }
 
-export default Scan;
