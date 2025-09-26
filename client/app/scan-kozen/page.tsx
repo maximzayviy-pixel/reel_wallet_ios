@@ -1,7 +1,7 @@
 'use client';
 import React, { useEffect, useRef, useState } from 'react';
-import { BrowserQRCodeReader } from '@zxing/browser';
-import { DecodeHintType, BarcodeFormat, IScannerControls } from '@zxing/library';
+import { BrowserQRCodeReader, IScannerControls } from '@zxing/browser';
+import { DecodeHintType, BarcodeFormat } from '@zxing/library';
 
 export default function Page() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
