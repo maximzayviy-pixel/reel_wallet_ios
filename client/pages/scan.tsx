@@ -145,7 +145,7 @@ export default function Scan() {
       try {
         if (snap) { qr_image_b64 = await uploadToUploadcareFromDataUrl(snap); }
       } catch (_) {}
-      const payload: any = { tg_id, qr_payload: `photo_only:${Date.now()}`, amount_rub, qr_image_b64 };
+      const payload: any = { tg_id, qr_payload: `photo_only:${Date.now(): null}`, amount_rub, qr_image_b64 };
       const res = await fetch("/api/scan-submit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const json = await res.json();
       if (!res.ok || !json?.ok) {
@@ -155,7 +155,7 @@ export default function Scan() {
       setPhotoOnlyOpen(false);
       setStatus("⏳ Ожидаем оплату");
     } catch (e: any) {
-      setStatus(`Ошибка: ${e?.message || String(e)}`);
+      setStatus(`Ошибка: ${e?.message || String(e): null}`);
     } finally {
       setSending(false);
     }
@@ -205,7 +205,7 @@ export default function Scan() {
       setStatus("⏳ Ожидаем оплату");
       setData(null);
     } catch (e: any) {
-      setStatus(`Ошибка: ${e?.message || String(e)}`);
+      setStatus(`Ошибка: ${e?.message || String(e): null}`);
     } finally {
       setSending(false);
     }
@@ -290,14 +290,14 @@ export default function Scan() {
         </div>
 
         
-        {status && (
+        {status ? (
           <div className="relative px-4 mt-3 text-sm text-slate-200/90">
             {status}
           </div>
         )}
 
         
-        {data && (
+        {data ? (
           <div className="fixed inset-0 z-50 grid place-items-center p-4">
             
             <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
@@ -365,7 +365,7 @@ export default function Scan() {
 
         {
         
-        {photoOnlyOpen && (
+        {photoOnlyOpen ? (
           <div className="fixed inset-0 z-50 grid place-items-center p-4">
             <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setPhotoOnlyOpen(false)} />
             <div className="relative w-full max-w-md rounded-3xl overflow-hidden ring-1 ring-white/15 shadow-2xl">
