@@ -1,4 +1,4 @@
-import { requireAdmin } f'../../lib/requireAuth'
+import { requireAdmin }  from '../../lib/requireAuth'
 import Link from 'next/link'
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
