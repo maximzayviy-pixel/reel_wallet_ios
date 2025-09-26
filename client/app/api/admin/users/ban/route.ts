@@ -1,7 +1,7 @@
-import { requireAdmin } from '../../../../../../lib/requireAuth'
+
 import { createClient } from '@supabase/supabase-js'
 
-const service = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE!)
+import { requireAdmin } from ../../../../../lib/requireAuth'
 const allowedOrigin = process.env.ADMIN_ALLOWED_ORIGIN || ''
 
 export async function POST(req: Request) {
