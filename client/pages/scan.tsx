@@ -3,6 +3,7 @@ import Layout from "../components/Layout";
 import useBanRedirect from '../lib/useBanRedirect';
 import { useEffect, useRef, useState } from "react";
 import type { JSX } from "react";
+import React from "react";
 import { BrowserMultiFormatReader, IScannerControls } from "@zxing/browser";
 import { parseEMVQR, parseSBPLink } from "../lib/emv";
 
@@ -29,7 +30,7 @@ type ScanData = {
   amountRub: number;
 };
 
-export default function Scan(): JSX.Element {
+const Scan: React.FC = () => {
   // Redirect banned users to banned page
   useBanRedirect();
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -488,3 +489,5 @@ async function pay() {
     </Layout>
   );
 }
+
+export default Scan;
