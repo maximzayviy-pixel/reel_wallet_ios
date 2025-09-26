@@ -1,7 +1,5 @@
-
 import { createClient } from '@supabase/supabase-js'
-
-import { requireAdmin } from ../../../../../lib/requireAuth'
+import { requireAdmin } from '../../../../../lib/requireAuth';
 const allowedOrigin = process.env.ADMIN_ALLOWED_ORIGIN || ''
 
 export async function POST(req: Request) {
