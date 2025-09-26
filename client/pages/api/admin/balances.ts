@@ -3,16 +3,29 @@ import list, { ListOptions } from "./_list";
 import { requireAdmin } from "./_guard";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
 
-const opts: ListOptions = {
-  table: "ledger",
-  columns: "id,tg_id,amount,currency,reason,created_at",
-  searchCols: ["tg_id","reason","currency"]
-};
-
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === "GET") {
-    return list(req, res, opts);
+    try {
+      const optsWith: ListOptions = {
+        table: "ledger",
+        columns: "id,tg_id,amount,currency,reason,created_at",
+        searchCols: ["tg_id","reason","currency"],
+      };
+      return await list(req, res, optsWith);
+    } catch (e: any) {
+      const msg = String(e?.message || "");
+      if (msg.includes("column ledger.currency does not exist") || msg.includes("column \"currency\" does not exist")) {
+        const optsWithout: ListOptions = {
+          table: "ledger",
+          columns: "id,tg_id,amount,reason,created_at",
+          searchCols: ["tg_id","reason"],
+        };
+        return await list(req, res, optsWithout);
+      }
+      throw e;
+    }
   }
+
   if (req.method === "POST") {
     try {
       const user = await requireAdmin(req, res);
@@ -38,6 +51,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(500).json({ ok: false, error: e?.message || "SERVER_ERROR" });
     }
   }
+
   res.setHeader("Allow", "GET,POST");
   res.status(405).end();
 }
