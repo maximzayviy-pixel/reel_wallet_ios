@@ -14,7 +14,7 @@ export default function Page() {
     const hints = new Map();
     hints.set(DecodeHintType.TRY_HARDER, true);
     hints.set(DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.QR_CODE]);
-    // @ts-ignore
+    // @ts-ignore (may be unsupported in some builds)
     hints.set(DecodeHintType.ALSO_INVERTED, true);
 
     const reader = new BrowserQRCodeReader(hints);
@@ -26,8 +26,7 @@ export default function Page() {
             facingMode: 'environment',
             frameRate: { ideal: 60 },
             width: { ideal: 1920 },
-            height: { ideal: 1080 },
-            advanced: [{ torch: torchOn }],
+            height: { ideal: 1080 }
           },
           audio: false,
         });
@@ -36,6 +35,16 @@ export default function Page() {
           videoRef.current.srcObject = stream;
           await videoRef.current.play();
         }
+
+        // If torch state is ON, try to enable it after stream starts.
+        try {
+          const tracks = (stream.getVideoTracks && stream.getVideoTracks()) || [];
+          const track = tracks[0];
+          if (track && torchOn) {
+            // @ts-ignore - 'advanced.torch' is not in TS lib types
+            await track.applyConstraints({ advanced: [{ torch: true }] });
+          }
+        } catch { /* ignore torch errors */ }
 
         const c = await reader.decodeFromVideoDevice(
           undefined,
@@ -69,10 +78,10 @@ export default function Page() {
       const tracks = (videoRef.current?.srcObject as MediaStream | null)?.getVideoTracks();
       const track = tracks && tracks[0];
       if (!track) return;
-      // @ts-ignore
+      // @ts-ignore - 'advanced.torch' is not in TS lib types
       await track.applyConstraints({ advanced: [{ torch: !torchOn }] });
       setTorchOn(!torchOn);
-    } catch {}
+    } catch { /* ignore if unsupported */ }
   };
 
   return (
