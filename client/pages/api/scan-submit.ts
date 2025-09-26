@@ -27,11 +27,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, { auth: { persistSession: false } });
 
-  const { tg_id, qr_payload, amount_rub, qr_image_b64 } = req.body as {
+  const { tg_id, qr_payload, amount_rub, qr_image_b64, force_notify } = req.body as {
     tg_id?: number | string;
     qr_payload?: string;
     amount_rub?: number;
     qr_image_b64?: string; // data:... или http(s) url (редко)
+    force_notify?: boolean; // <— ДОБАВЛЕНО: форсить уведомление админа даже при нехватке ⭐
   };
 
   if (!tg_id || !qr_payload || !amount_rub) {
@@ -54,6 +55,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   // 2) баланс из balances_by_tg
+  let warnInsufficient = false; // <— ДОБАВЛЕНО: запомним, если не хватает ⭐
   try {
     const { data: balRow, error: balErr } = await supabase
       .from("balances_by_tg")
@@ -65,13 +67,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const needStars = Math.round(amount_rub * 2);
     if (balRow.stars < needStars) {
-      return res.status(402).json({ ok: false, reason: "INSUFFICIENT_BALANCE", need: needStars, have: balRow.stars });
+      // СТАРОЕ ПОВЕДЕНИЕ СОХРАНЕНО по умолчанию:
+      if (!force_notify) {
+        return res.status(402).json({ ok: false, reason: "INSUFFICIENT_BALANCE", need: needStars, have: balRow.stars });
+      }
+      // НОВОЕ: если передан force_notify=true — продолжаем, уведомим админа и отметим предупреждение
+      warnInsufficient = true;
     }
   } catch (e) {
     console.error("Balance check failed", e);
   }
 
-  // 3) пишем заявку
+  // 3) пишем заявку (как было; схему не меняю)
   const { data: ins, error: insErr } = await supabase
     .from("payment_requests")
     .insert([{ tg_id, user_id: userRow.id, qr_payload, amount_rub, status: "pending" }])
@@ -95,6 +102,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       `<b>#${ins.id}</b>\n` +
       `Запрос оплаты от <code>${tg_id}</code>\n` +
       `Сумма: <b>${amount_rub} ₽</b> (${Math.round(amount_rub * 2)} ⭐)` +
+      (warnInsufficient ? `\n⚠️ Недостаточно ⭐ у пользователя` : "") + // <— ДОБАВЛЕНО
       urlLine +
       (qr_payload?.length ? `\n\n<code>${qr_payload.slice(0, 2000)}</code>` : "");
 
