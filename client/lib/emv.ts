@@ -1,180 +1,124 @@
-export type EMVTree = {
-  value?: string;
-  nodes?: Record<string, EMVTree | any>;
-};
+/**
+ * EMV QR Parser with support for Additional Data Field Template (62.xx)
+ */
+export type EmvNode = Record<string, any>;
 
-export type EMVParsed = {
-  currency?: string; // e.g. RUB
-  amount?: number;   // RUB
-  merchant?: string;
-  city?: string;
-  account?: string; // from 26.xx (01/02)
-  additional: Record<string, string>;
-  raw?: string;
-};
-
-function safeNumber(n: string | undefined | null): number | undefined {
-  if (!n) return undefined;
-  const x = Number(n.replace(",", "."));
-  return Number.isFinite(x) ? x : undefined;
+function readPair(input: string, idx: number) {
+  const id = input.slice(idx, idx + 2);
+  const len = parseInt(input.slice(idx + 2, idx + 4), 10);
+  const start = idx + 4;
+  const end = start + len;
+  const value = input.slice(start, end);
+  return { id, len, value, end };
 }
 
-function isLikelyEMV(s: string) {
-  // Typical dynamic EMV starts with 000201... but some payloads may have noise around
-  return /\b00020101/.test(s) || /^[0-9]{6}/.test(s);
+function isTemplate(id: string) {
+  const n = Number(id);
+  return (n >= 26 && n <= 51) || id === "62";
 }
+
+function parseNSPKUrlAmount(raw: string): number | undefined {
+  try {
+    const u = new URL(raw);
+    if (u.hostname.includes('qr.nspk.ru')) {
+      const sum = u.searchParams.get('sum');
+      const amount = u.searchParams.get('amount');
+      if (sum && /^\d+$/.test(sum)) return Number(sum)/100;
+      if (amount) return Number(amount.replace(',', '.'));
+    }
+  } catch (_) {}
+  return undefined;
+}
+export function parseEMVQR(raw: string): EmvNode {
+  const cleaned = raw.replace(/\s+/g, "");
+  if (!/^\d{4,}$/.test(cleaned)) {
+    const info: EmvNode = { raw };
+    const m = cleaned.match(/(?:amount|sum|amt|s|a)[=:]([0-9]+(?:[.,][0-9]+)?)/i);
+    if (m) info.amount = Number(m[1].replace(",", "."));
+    const nspk = parseNSPKUrlAmount(raw);
+    if (nspk !== undefined) info.amount = nspk;
+    return info;
+  }
+
+  let idx = 0;
+  const root: EmvNode = { _raw: cleaned, nodes: {} };
+  while (idx + 4 <= cleaned.length) {
+    const { id, value, end } = readPair(cleaned, idx);
+    if (isTemplate(id)) {
+      let j = 0, child: EmvNode = {};
+      while (j + 4 <= value.length) {
+        const sub = readPair(value, j);
+        child[sub.id] = sub.value;
+        j = sub.end;
+      }
+      root.nodes[id] = child;
+    } else {
+      root.nodes[id] = value;
+    }
+    idx = end;
+  }
+
+  const currency = root.nodes["53"];
+  const amount = root.nodes["54"] ? Number(root.nodes["54"]) : undefined;
+  const merchant = root.nodes["59"];
+  const city = root.nodes["60"];
+
+  let account = undefined;
+  for (let i = 26; i <= 51; i++) {
+    const key = String(i).padStart(2, "0");
+    if (root.nodes[key]) {
+      const node = root.nodes[key];
+      const parts: string[] = [];
+      Object.keys(node).sort().forEach(k => parts.push(`${k}:${node[k]}`));
+      account = parts.join("; ");
+      break;
+    }
+  }
+
+  let additional: any = {};
+  if (root.nodes["62"]) {
+    const node = root.nodes["62"];
+    if (node["01"]) additional.order_id = node["01"];
+    if (node["05"]) additional.terminal_id = node["05"];
+    if (node["07"]) additional.customer_id = node["07"];
+    if (node["08"]) additional.loyalty_number = node["08"];
+  }
+
+  return { raw, currency, amount, merchant, city, account, additional, nodes: root.nodes };
+}
+
 
 /**
- * Generic EMV TLV parser (2-digit tag, 2-digit length, value)
+ * Lightweight parser for SBP (NSPK) functional link:
+ * https://qr.nspk.ru/QR_ID?type=01&bank=000000000001&sum=10000&cur=RUB&crc=ABCD
+ * sum — amount in kopecks (e.g. 10000 => 100.00 RUB)
  */
-function parseTLV(input: string): { tree: EMVTree; rest: string } {
-  let i = 0;
-  const root: EMVTree = { nodes: {} };
-
-  const read = (len: number) => {
-    const part = input.slice(i, i + len);
-    i += len;
-    return part;
-  };
-
-  const parseNode = (limit: number): EMVTree => {
-    const node: EMVTree = { nodes: {} };
-    let consumed = 0;
-    while (consumed < limit && i + 4 <= input.length) {
-      const tag = read(2);
-      const lenStr = read(2);
-      if (!/^\d{2}$/.test(tag) || !/^\d{2}$/.test(lenStr)) {
-        // not TLV, bail
-        break;
-      }
-      const l = parseInt(lenStr, 10);
-      const val = read(l);
-      consumed += 4 + l;
-
-      // Composite templates (like 26 Merchant Account Information) also use 2-2-L TLV inside
-      if (/^(26|62)$/.test(tag)) {
-        // parse nested TLV
-        let j = 0;
-        const inner: Record<string, any> = {};
-        while (j + 4 <= val.length) {
-          const t = val.slice(j, j + 2);
-          const ln = parseInt(val.slice(j + 2, j + 4), 10);
-          const vv = val.slice(j + 4, j + 4 + ln);
-          inner[t] = vv;
-          j += 4 + ln;
-        }
-        (node.nodes as any)[tag] = inner;
-      } else {
-        (node.nodes as any)[tag] = val;
-      }
-    }
-    return node;
-  };
-
-  // If input looks like EMV but may include noise, try to locate the start
-  let start = input.search(/000201/);
-  if (start === -1) start = 0;
-  i = start;
-
-  const maybePayloadLenTag = input.slice(i, i + 2);
-  if (!/^\d{2}$/.test(maybePayloadLenTag)) {
-    // give up with empty tree
-    return { tree: root, rest: input.slice(i) };
-  }
-
-  // Try to greedily parse until CRC (63)
-  // Find total length roughly by scanning for 6304
-  const idx63 = input.indexOf("6304", i);
-  let totalLen = idx63 > -1 ? (idx63 - i) + 8 : input.length - i;
-  if (totalLen < 0) totalLen = input.length - i;
-
-  const parsed = parseNode(totalLen);
-  root.nodes = parsed.nodes;
-  return { tree: root, rest: input.slice(i + totalLen) };
-}
-
-export function parseEMVQR(raw: string): EMVParsed | null {
-  if (!raw || !isLikelyEMV(raw)) return null;
+export function parseSBPLink(raw: string) {
   try {
-    const { tree } = parseTLV(raw);
-    const nodes = tree.nodes || {};
+    const u = new URL(raw);
+    const hostOk = /(^|\.)qr\.nspk\.ru$/i.test(u.hostname) || /(^|\.)sub\.nspk\.ru$/i.test(u.hostname);
+    if (!hostOk) return null;
+    const params = u.searchParams;
+    const type = params.get("type") || undefined;
+    const bank = params.get("bank") || undefined;
+    const sumStr = params.get("sum");
+    const cur = (params.get("cur") || "RUB").toUpperCase();
+    const crc = params.get("crc") || undefined;
 
-    const currency = (nodes["58"] || "RUB") as string;
-    const amountStr = nodes["54"] as string | undefined;
-    const merchant = nodes["59"] as string | undefined;
-    const city = nodes["60"] as string | undefined;
-
-    let account = "";
-    if (nodes["26"]) {
-      const m = nodes["26"] as Record<string, string>;
-      // Common sub-tags:
-      // 01 – Globally Unique Identifier (GUID) / SBP ID
-      // 02 – Merchant PAN / Account
-      account = m["02"] || m["01"] || "";
+    let amountRub: number | null = null;
+    if (sumStr && /^\d+$/.test(sumStr)) {
+      // kopecks to RUB
+      amountRub = Number(sumStr) / 100;
     }
-
-    const additional: Record<string, string> = {};
-    if (nodes["62"]) {
-      const extra = nodes["62"] as Record<string, string>;
-      if (extra["01"]) additional.order_id = extra["01"];
-      if (extra["05"]) additional.terminal_id = extra["05"];
-      if (extra["07"]) additional.customer_id = extra["07"];
-      if (extra["08"]) additional.loyalty_number = extra["08"];
-    }
-
-    const out: EMVParsed = {
-      currency,
-      amount: safeNumber(amountStr),
-      merchant,
-      city,
-      account,
-      additional,
-      raw,
-    };
-    return out;
-  } catch {
-    return null;
-  }
-}
-
-export function parseSBPLink(raw: string): {
-  raw: string;
-  sbp: true;
-  host: string;
-  type?: string;
-  bank?: string;
-  currency?: string;
-  amount?: number;
-  crc?: string;
-} | null {
-  try {
-    if (!raw) return null;
-    // Extract https://qr.nspk.ru even from intent://… or noisy wrapper
-    const m = raw.match(/https?:\/\/qr\.nspk\.ru\/[A-Za-z0-9/_-]+(?:\?[^ \n\r<">#]*)?/i);
-    if (!m) return null;
-    const u = new URL(m[0]);
-    const host = u.hostname.toLowerCase();
-    if (host !== "qr.nspk.ru") return null;
-
-    const get = (k: string) =>
-      u.searchParams.get(k) ?? u.searchParams.get(k.toUpperCase());
-    const type = get("type") ?? undefined;
-    const bank = get("bank") ?? undefined;
-    const cur = (get("cur") ?? "RUB").toUpperCase();
-    const sumStr = get("sum") ?? get("amount") ?? get("amt");
-    const kop = sumStr ? Number(sumStr) : NaN;
-    const amountRub =
-      Number.isFinite(kop) ? Math.round(kop as number) / 100 : undefined;
-    const crc = get("crc") ?? undefined;
 
     return {
-      raw: u.toString(),
+      raw,
       sbp: true,
-      host,
+      host: u.hostname,
       type,
       bank,
       currency: cur,
-      amount: amountRub,
+      amount: amountRub, // in RUB
       crc,
     };
   } catch {
