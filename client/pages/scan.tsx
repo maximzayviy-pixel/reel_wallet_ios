@@ -187,7 +187,7 @@ export default function Scan() {
       if (!res.ok || !json?.ok) {
         if (json?.reason === "INSUFFICIENT_BALANCE") setStatus(`Недостаточно ⭐: нужно ${json.need}, у вас только ${json.have}.`);
         else if (json?.reason === "NO_USER") setStatus("Не найден профиль. Перезапусти бота в Telegram.");
-        else setStatus(`Ошибка: ${json?.reason || json?.error || "неизвестная"}`);
+        else setStatus(`Ошибка: ${json?.reason || json?.error || "Неизвестная, обратитесь в поддержку - @ReelWalet"}`);
         return;
       }
       setStatus("⏳ Ожидаем оплату"); setData(null);
