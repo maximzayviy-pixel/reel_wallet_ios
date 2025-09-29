@@ -34,11 +34,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   if (gErr) return res.status(500).json({ ok: false, error: gErr.message });
   if (!gift || gift.enabled === false) return res.status(400).json({ ok: false, error: "gift_not_available" });
 
-  // user with ban flag
-  const { data: userRec, error: uErr } = await supabase.from("users").select("id,is_banned").eq("tg_id", tgUser.id).maybeSingle();
+  // user
+  const { data: userRec, error: uErr } = await supabase.from("users").select("id").eq("tg_id", tgUser.id).maybeSingle();
   if (uErr) return res.status(500).json({ ok: false, error: uErr.message });
   if (!userRec) return res.status(400).json({ ok: false, error: "user_not_found" });
-  if (userRec.is_banned) return res.status(403).json({ ok: false, error: "USER_BANNED" });
 
   // balance
   const { data: bal, error: bErr } = await supabase.from("balances").select("available_rub").eq("user_id", userRec.id).maybeSingle();
