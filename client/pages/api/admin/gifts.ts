@@ -2,36 +2,48 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { createClient } from "@supabase/supabase-js";
 import { requireAdmin } from "./_guard";
 
+// Парсим превью из t.me/nft/...: og:image / og:video / <video src> / <source src>
 async function fetchGiftPreview(link: string) {
-  // Пример: https://t.me/nft/EasterEgg-115089
-  const r = await fetch(link, { headers: { "User-Agent": "Mozilla/5.0" } });
+  const r = await fetch(link, {
+    redirect: "follow",
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36",
+    },
+  });
   const html = await r.text();
+  const pick = (re: RegExp) => (html.match(re)?.[1] ?? "").trim();
 
-  const get = (re: RegExp) => (html.match(re)?.[1] ?? "").trim();
+  const ogImage =
+    pick(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
+    pick(/<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i) ||
+    pick(/<meta[^>]+property=["']og:image:secure_url["'][^>]+content=["']([^"']+)["']/i);
 
-  // Telegram обычно кладёт превью в og:image / twitter:image
-  const image =
-    get(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
-    get(/<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i);
+  const ogVideo =
+    pick(/<meta[^>]+property=["']og:video["'][^>]+content=["']([^"']+)["']/i) ||
+    pick(/<meta[^>]+property=["']og:video:url["'][^>]+content=["']([^"']+)["']/i) ||
+    pick(/<meta[^>]+name=["']twitter:player["'][^>]+content=["']([^"']+)["']/i);
 
-  // Если есть ролик — возьмём og:video
-  const video =
-    get(/<meta[^>]+property=["']og:video["'][^>]+content=["']([^"']+)["']/i) ||
-    get(/<meta[^>]+name=["']twitter:player["'][^>]+content=["']([^"']+)["']/i);
+  const videoTag = pick(/<video[^>]+src=["']([^"']+)["']/i);
+  const sourceTag = pick(/<source[^>]+src=["']([^"']+)["'][^>]*>/i);
 
-  return { image_url: image || null, anim_url: video || null };
+  const image_url = ogImage || "";
+  const anim_url = ogVideo || videoTag || sourceTag || "";
+
+  return {
+    image_url: image_url || null,
+    anim_url: anim_url || null,
+  };
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const admin = await requireAdmin(req, res);
   if (!admin) return;
+
   const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
 
   if (req.method === "GET") {
-    const { data, error } = await supabase
-      .from("gifts")
-      .select("*")
-      .order("id", { ascending: false });
+    const { data, error } = await supabase.from("gifts").select("*").order("id", { ascending: false });
     if (error) return res.status(500).json({ ok: false, error: error.message });
     return res.json({ ok: true, items: data });
   }
@@ -45,7 +57,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const slug = m[1];
     const number = Number(m[2]);
 
-    // Если превью не передали — попробуем спарсить
     let parsed = { image_url: image_url || null, anim_url: anim_url || null };
     if (!image_url || !anim_url) {
       try {
@@ -53,22 +64,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         parsed.image_url = parsed.image_url || got.image_url;
         parsed.anim_url = parsed.anim_url || got.anim_url;
       } catch {
-        // ничего страшного — сохраним без превью
+        // оставим без превью
       }
     }
 
-    const { error } = await supabase
-      .from("gifts")
-      .insert({
-        title: title || slug,
-        slug,
-        number,
-        price_rub,
-        image_url: parsed.image_url,
-        anim_url: parsed.anim_url,
-        enabled,
-      });
-
+    const { error } = await supabase.from("gifts").insert({
+      title: title || slug,
+      slug,
+      number,
+      price_rub,
+      image_url: parsed.image_url,
+      anim_url: parsed.anim_url,
+      enabled,
+    });
     if (error) return res.status(500).json({ ok: false, error: error.message });
     return res.json({ ok: true });
   }
