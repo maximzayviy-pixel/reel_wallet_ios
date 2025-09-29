@@ -1,93 +1,134 @@
-// pages/browser.tsx — Marketplace for NFT gifts
+// pages/browser.tsx
 import { useEffect, useState } from "react";
 import Layout from "../components/Layout";
-
-type Gift = {
-  id: number; title: string; slug: string; number: number;
-  tme_link: string; price_rub: number; image_url?: string;
-};
+import TasksCard from "../components/TasksCard";
 
 export default function Browser() {
+  // Берём tgId из Telegram WebApp, если страница открыта внутри Telegram
   const [tgId, setTgId] = useState<number | undefined>(undefined);
-  const [items, setItems] = useState<Gift[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<Gift | null>(null);
-  const [buying, setBuying] = useState(false);
 
   useEffect(() => {
     try {
-      // @ts-ignore
+      // @ts-ignore — у Telegram нет типов в проекте по умолчанию
       const id = window?.Telegram?.WebApp?.initDataUnsafe?.user?.id;
       if (id) setTgId(Number(id));
-    } catch {}
-    fetch('/api/gifts/list').then(r=>r.json()).then(j=>{
-      if (j.ok) setItems(j.items); else setError(j.error || 'Ошибка загрузки');
-    }).catch(()=>setError('Ошибка сети')).finally(()=>setLoading(false));
+    } catch {
+      // ок, оставим undefined — кнопка "Проверить" предупредит пользователя
+    }
   }, []);
 
-  const buy = async (gift: Gift) => {
-    setBuying(true);
-    try {
-      const r = await fetch('/api/gifts/buy', {
-        method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ gift_id: gift.id })
-      });
-      const j = await r.json();
-      if (!j.ok) throw new Error(j.error || 'Ошибка');
-      // open link to transfer the collectible gift on Telegram
-      window.open(j.tme_link, '_blank');
-      alert('Покупка успешна! Ссылка на подарок открыта.');
-    } catch (e:any) {
-      alert('Не удалось купить: ' + e.message);
-    } finally { setBuying(false); }
-  };
-
   return (
-    <Layout title="Маркетплейс подарков">
+    <Layout title="Витрина подарков">
       <div className="max-w-2xl mx-auto p-4 sm:p-6">
-        {loading && <div className="text-slate-500">Загрузка...</div>}
-        {error && <div className="text-red-600">{error}</div>}
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-          {items.map(g => (
-            <button key={g.id} onClick={()=>setSelected(g)} className="rounded-2xl bg-white ring-1 ring-slate-200 p-3 text-left">
-              <div className="aspect-square rounded-xl bg-slate-50 flex items-center justify-center overflow-hidden">
-                {g.image_url ? <img src={g.image_url} alt={g.title} className="w-full h-full object-cover" /> : <span className="text-4xl">🎁</span>}
-              </div>
-              <div className="mt-2">
-                <div className="text-sm font-medium">{g.title}</div>
-                <div className="text-xs text-slate-500">#{g.number}</div>
-                <div className="text-sm font-semibold mt-1">{g.price_rub} ₽</div>
-              </div>
-            </button>
-          ))}
-        </div>
+        {/* Card */}
+        <div className="relative overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-slate-100">
+          {/* Soft gradients background */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0 opacity-70 [mask-image:radial-gradient(60%_60%_at_50%_30%,#000_40%,transparent_100%)]"
+          >
+            <div className="absolute -top-8 left-1/2 h-80 w-80 -translate-x-1/2 rounded-full bg-sky-100 blur-3xl" />
+            <div className="absolute -bottom-10 -right-10 h-72 w-72 rounded-full bg-emerald-100 blur-3xl" />
+          </div>
 
-        {/* Modal */}
-        {selected && (
-          <div className="fixed inset-0 bg-black/30 flex items-end sm:items-center justify-center z-50" onClick={()=>setSelected(null)}>
-            <div className="bg-white rounded-2xl w-full sm:w-[420px] p-4 m-2" onClick={e=>e.stopPropagation()}>
-              <div className="flex gap-3">
-                <div className="w-28 h-28 rounded-xl bg-slate-50 overflow-hidden flex items-center justify-center">
-                  {selected.image_url ? <img src={selected.image_url} className="w-full h-full object-cover" /> : <span className="text-4xl">🎁</span>}
-                </div>
-                <div className="flex-1">
-                  <div className="font-semibold">{selected.title}</div>
-                  <div className="text-xs text-slate-500 mb-2">
-                    <a className="underline" href={selected.tme_link} target="_blank">Открыть в Telegram</a>
-                  </div>
-                  <div className="text-2xl font-bold">{selected.price_rub} ₽</div>
-                </div>
-              </div>
-              <div className="mt-4 grid grid-cols-2 gap-3">
-                <button className="h-11 rounded-xl ring-1 ring-slate-200" onClick={()=>setSelected(null)}>Отмена</button>
-                <button className="h-11 rounded-xl bg-blue-600 text-white disabled:opacity-60" disabled={buying} onClick={()=>buy(selected!)}>
-                  Купить
-                </button>
+          <div className="relative p-6 sm:p-10">
+            {/* Header */}
+            <div className="flex items-center gap-3">
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-amber-100">🎁</span>
+              <div>
+                <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900">
+                  Отправка коллекционного подарка
+                </h1>
+                <p className="text-slate-600 text-sm sm:text-base">
+                  После передачи подарка ⭐ звёзды начисляются{" "}
+                  <span className="font-medium text-slate-900">автоматически</span> на ваш баланс.
+                </p>
               </div>
             </div>
+
+            {/* CTA */}
+            <div className="mt-6 sm:mt-8 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+              <a
+                href="https://t.me/ReelWalet"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center justify-center rounded-2xl px-4 py-3 text-sm font-semibold text-white bg-slate-900 hover:bg-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+              >
+                Зайти в профиль администратора
+                <svg className="ml-2 h-4 w-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden>
+                  <path d="M5 10a1 1 0 0 1 1-1h6.586L10.293 6.707a1 1 0 1 1 1.414-1.414l4 4a1 1 0 0 1 0 1.414l-4 4A1 1 0 1 1 10.293 13.293L12.586 11H6a1 1 0 0 1-1-1Z" />
+                </svg>
+              </a>
+            </div>
+
+            {/* Compensation banner */}
+            <div className="mt-6 rounded-2xl ring-1 ring-emerald-200 bg-gradient-to-br from-emerald-50 to-sky-50 p-4">
+              <div className="flex items-start gap-3">
+                <span>✅</span>
+                <div className="text-sm text-slate-700 leading-6">
+                  Передача подарка оплачивается <span className="font-medium">25 звёздами</span>. Эти звёзды автоматически{" "}
+                  <span className="font-medium">компенсируются</span> на баланс после успешной передачи.
+                </div>
+              </div>
+            </div>
+
+            {/* Video guide */}
+            <div className="mt-8 rounded-2xl ring-1 ring-slate-200 bg-white/70 p-4">
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-medium text-slate-500">Видео-инструкция</div>
+                <a
+                  href="https://telegram.org/file/400780400469/1/WBseEVs-P7s.4554476.mp4/ec249a3bdd29d328b9"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-slate-500 underline decoration-slate-300 hover:decoration-slate-500"
+                >
+                  Открыть в новом окне
+                </a>
+              </div>
+              <div className="mt-3 overflow-hidden rounded-xl bg-black/5">
+                <video className="w-full h-auto" autoPlay muted loop playsInline>
+                  <source
+                    src="https://telegram.org/file/400780400469/1/WBseEVs-P7s.4554476.mp4/ec249a3bdd29d328b9"
+                    type="video/mp4"
+                  />
+                  Ваш браузер не поддерживает воспроизведение видео. Вы можете{" "}
+                  <a
+                    href="https://telegram.org/file/400780400469/1/WBseEVs-P7s.4554476.mp4/ec249a3bdd29d328b9"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    посмотреть ролик здесь
+                  </a>
+                  .
+                </video>
+              </div>
+              <p className="mt-2 text-xs text-slate-500">
+                В ролике показано: вход в профиль, меню «⋮», выбор «Отправить подарок», выбор подарка, оплата 25⭐ и
+                подтверждение передачи.
+              </p>
+            </div>
+
+            {/* Tips */}
+            <div className="mt-8 rounded-2xl ring-1 ring-slate-200 bg-white/70 p-4">
+              <div className="text-xs font-medium text-slate-500">Подсказки</div>
+              <ul className="mt-2 space-y-2 text-slate-700 text-sm leading-6">
+                <li>• Если кнопка не видна — обновите приложение и попробуйте снова.</li>
+                <li>• Проверьте, чтобы на кошельке было не менее 25 ⭐ для старта передачи.</li>
+                <li>• Вознаграждение и компенсация начисляются автоматически — обычно в течение пары минут.</li>
+              </ul>
+            </div>
+
+            {/* === Задания за подписку (вставлено) === */}
+            <div className="mt-8">
+              <TasksCard tgId={tgId as number | undefined} />
+            </div>
+
+            {/* Footer note */}
+            <p className="mt-8 text-[11px] text-slate-400 text-center">
+              Есть идеи, как сделать процесс ещё удобнее? Напишите нам — мы прислушаемся.
+            </p>
           </div>
-        )}
+        </div>
       </div>
     </Layout>
   );
