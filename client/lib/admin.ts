@@ -7,7 +7,7 @@ export type AdminInfo = { id: number; via: "token" | "tg_id" };
 function parseAdminIds(): Set<number> {
   const raw =
     process.env.TELEGRAM_ADMIN_IDS ||
-    process.env.TELEGRAM_ADMIN_CHAT || // на случай если используешь один чат как allowlist
+    process.env.TELEGRAM_ADMIN_CHAT || // допускаем одиночный id
     "";
   return new Set(
     raw
@@ -19,14 +19,23 @@ function parseAdminIds(): Set<number> {
   );
 }
 
-function headerOf(h: any, name: string): string | undefined {
+type NodeHeaders =
+  | Headers
+  | Record<string, string | string[] | undefined>;
+
+function headerOf(h: NodeHeaders | undefined, name: string): string | undefined {
   if (!h) return undefined;
-  // NextApiRequest: req.headers['x-admin-token'] | NextRequest: req.headers.get(...)
-  if (typeof h.get === "function") return h.get(name) ?? undefined;
-  return (h[name] as string | undefined) ?? undefined;
+  if (typeof (h as Headers).get === "function") {
+    // Headers (Edge / NextRequest / Request)
+    return (h as Headers).get(name) ?? undefined;
+  }
+  // Node IncomingHttpHeaders (NextApiRequest.headers)
+  const v = (h as Record<string, string | string[] | undefined>)[name];
+  if (Array.isArray(v)) return v[0];
+  return v ?? undefined;
 }
 
-/** Общая логика проверки токена/allowlist */
+/** Общая проверка токена/allowlist */
 function checkAdminByHeadersAndId(
   tokenFromHeaders: string | undefined,
   tgIdMaybe: number | undefined
@@ -38,15 +47,15 @@ function checkAdminByHeadersAndId(
   // 2) tg_id из allowlist
   const allow = parseAdminIds();
   if (tgIdMaybe && allow.has(tgIdMaybe)) {
-    return { id: tgIdMaybe, via: "tg_id" as const };
+    return { id: tgIdMaybe, via: "tg_id" };
   }
   return null;
 }
 
 /** Для pages API routes (NextApiRequest) */
 export async function ensureIsAdminApi(req: NextApiRequest): Promise<AdminInfo> {
-  const token = headerOf(req.headers, "x-admin-token");
-  const tgHeader = headerOf(req.headers, "x-telegram-id");
+  const token = headerOf(req.headers as any, "x-admin-token");
+  const tgHeader = headerOf(req.headers as any, "x-telegram-id");
   const tgQuery = (req.query?.tg_id as string | undefined) ?? undefined;
   const tgId = Number(tgHeader || tgQuery || 0) || undefined;
 
@@ -58,15 +67,13 @@ export async function ensureIsAdminApi(req: NextApiRequest): Promise<AdminInfo> 
   throw err;
 }
 
-/** Для Edge/App Router (NextRequest/Request) — если пригодится */
+/** Для Edge/App Router (NextRequest/Request) — если понадобится */
 export async function ensureIsAdminEdge(req: NextRequest | Request): Promise<AdminInfo> {
-  // @ts-expect-error — у Request/NextRequest есть headers.get
-  const token = headerOf(req.headers, "x-admin-token");
-  // @ts-expect-error
-  const tgHeader = headerOf(req.headers, "x-telegram-id");
+  const token = headerOf((req as any).headers, "x-admin-token");
+  const tgHeader = headerOf((req as any).headers, "x-telegram-id");
 
-  // Из URL можно достать tg_id как query-параметр
-  const url = new URL((req as any).url ?? "http://localhost");
+  const urlStr = (req as any).url as string | undefined;
+  const url = new URL(urlStr ?? "http://localhost");
   const tgQuery = url.searchParams.get("tg_id") ?? undefined;
 
   const tgId = Number(tgHeader || tgQuery || 0) || undefined;
