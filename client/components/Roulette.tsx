@@ -1,5 +1,4 @@
-
-// components/Roulette.tsx — clean rewrite for stable layout
+// components/Roulette.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, useAnimation } from "framer-motion";
 
@@ -23,6 +22,18 @@ const PRIZES: Prize[] = [
   { kind: "nft", label: "Plush Pepe NFT", image: NFT_IMG },
 ];
 
+// Проценты шансов (синхронизированы с API весами)
+const CHANCES = [
+  { key: "+3", pct: 30 },
+  { key: "+5", pct: 24 },
+  { key: "+10", pct: 18 },
+  { key: "+15", pct: 12 },
+  { key: "+50", pct: 8 },
+  { key: "+100", pct: 5.5 },
+  { key: "+1000", pct: 2.4 },
+  { key: "Plush Pepe NFT", pct: 0.1 },
+];
+
 function useTg() {
   const [tgId, setTgId] = useState<number | null>(null);
   const [initData, setInitData] = useState<string>("");
@@ -40,23 +51,27 @@ export default function Roulette() {
   const { tgId, initData } = useTg();
   const [agreed, setAgreed] = useState(false);
   const [agreeConfirmed, setAgreeConfirmed] = useState(false);
+
+  // одноразовое согласие
+  useEffect(() => {
+    try {
+      if (typeof window !== "undefined") {
+        const v = window.localStorage.getItem("roulette_agreed");
+        if (v === "1") setAgreeConfirmed(true);
+      }
+    } catch {}
+  }, []);
+
   const [balance, setBalance] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Prize | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // persist one-time agreement
-  useEffect(()=>{
-    try{
-      const v = typeof window !== "undefined" ? window.localStorage.getItem("roulette_agreed") : null;
-      if (v === "1") setAgreeConfirmed(true);
-    }catch{}
-  },[]);
-
   const controls = useAnimation();
   const trackRef = useRef<HTMLDivElement>(null);
+  const [stopIndex, setStopIndex] = useState(0);
 
-  // fetch balance
+  // баланс
   const fetchBalance = async () => {
     if (!tgId) return;
     try {
@@ -66,10 +81,12 @@ export default function Roulette() {
       setBalance(Number(src?.stars || 0));
     } catch {}
   };
-  useEffect(() => { fetchBalance(); }, [tgId]);
+  useEffect(() => { fetchBalance(); }, [tgId]); // :contentReference[oaicite:5]{index=5}
 
+  // длинная лента карточек
   const track = useMemo(() => Array(8).fill(0).flatMap(() => PRIZES), []);
 
+  // старт спина
   const onSpin = async () => {
     setError(null);
     if (!agreeConfirmed) { setError("Подтвердите ознакомление с соглашением."); return; }
@@ -79,29 +96,35 @@ export default function Roulette() {
     try {
       setBusy(true);
       document.body.classList.add("roulette-overlay-open");
+
       const res = await fetch("/api/roulette-spin", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-init-data": initData || "",
-        },
+        headers: { "Content-Type": "application/json", "x-init-data": initData || "" },
         body: JSON.stringify({ tg_id: tgId }),
-      });
-      const json = await res.json();
-      if (!res.ok) { setError(json?.error || "Ошибка спина"); return; }
+      }); // :contentReference[oaicite:6]{index=6}
+      const json = await res.json().catch(()=> ({} as any));
+      if (!res.ok || json?.ok === false) {
+        setError(json?.error || "Ошибка спина");
+        return;
+      }
 
+      // prize из сервера → приводим к локальному типу
       const p = json?.prize;
       let clientPrize: Prize | null = null;
       if (p?.type === "nft") clientPrize = { kind: "nft", label: "Plush Pepe NFT", image: NFT_IMG };
       else if (typeof p?.value === "number") clientPrize = { kind: "stars", label: `+${p.value}`, value: p.value };
       if (!clientPrize) clientPrize = { kind: "stars", label: "+5", value: 5 };
 
-      const idx = track.findIndex(q => q.kind === clientPrize!.kind && (q.kind === "nft" ? (q as any).label === clientPrize!.label : (q as any).value === (clientPrize as any).value));
+      // вычисляем индекс остановки и анимируем
+      const idx = track.findIndex((q) =>
+        q.kind === clientPrize!.kind &&
+        (q.kind === "nft" ? (q as any).label === clientPrize!.label : (q as any).value === (clientPrize as any).value)
+      );
       const baseIndex = idx >= 0 ? idx : 3;
       const finalIndex = baseIndex + 24 + Math.floor(Math.random() * 12);
+      setStopIndex(finalIndex);
 
-      const card = trackRef.current?.querySelector<HTMLDivElement>("[data-card]");
-      const cardW = card?.offsetWidth || 128;
+      const cardW = trackRef.current?.querySelector<HTMLDivElement>("[data-card]")?.offsetWidth || 132;
       const gap = 12;
       const targetX = -(finalIndex * (cardW + gap));
 
@@ -120,6 +143,7 @@ export default function Roulette() {
         <h2 className="text-lg font-semibold">Рулетка</h2>
         <p className="text-slate-500 text-sm mt-1">Стоимость игры — <b>{COST} ⭐</b>.</p>
 
+        {/* Согласие */}
         {!agreeConfirmed && (
           <div className="mt-4 rounded-xl bg-slate-50 p-3 ring-1 ring-slate-200">
             <label className="flex items-start gap-3 cursor-pointer select-none">
@@ -132,7 +156,7 @@ export default function Roulette() {
             </label>
             <button
               className={`mt-3 h-10 w-full rounded-xl ${agreed ? "bg-blue-600 text-white" : "bg-slate-200 text-slate-500"} disabled:opacity-60`}
-              onClick={() => { setAgreeConfirmed(true); try{ window.localStorage.setItem("roulette_agreed","1"); }catch{} }}
+              onClick={() => { setAgreeConfirmed(true); try { window.localStorage.setItem("roulette_agreed", "1"); } catch {} }}
               disabled={!agreed}
             >
               Ознакомился
@@ -140,66 +164,76 @@ export default function Roulette() {
           </div>
         )}
 
+        {/* Рулетка */}
         <div className="mt-4 relative">
           {!agreeConfirmed && (
             <div className="absolute inset-0 z-20 bg-white/70 backdrop-blur-sm rounded-2xl flex items-center justify-center">
               <div className="text-center text-slate-600 text-sm px-4">Чтобы играть, отметьте галочку и нажмите «Ознакомился» выше</div>
             </div>
           )}
-          <div className={`${!agreeConfirmed ? "pointer-events-none blur-[1px]" : ""}`}>
-            <div className="overflow-hidden rounded-2xl ring-1 ring-slate-200 relative bg-white">
-              <motion.div ref={trackRef} className="flex gap-3 p-3" animate={controls} initial={{ x: 0 }}>
-                {Array(8).fill(0).flatMap(()=>PRIZES).map((p, i) => (
-                  <div key={i} data-card className="min-w-[128px] max-w-[128px] h-32 p-3 flex items-center justify-center rounded-2xl bg-gradient-to-br from-amber-50 via-yellow-50 to-amber-100 shadow-md ring-1 ring-amber-300 relative overflow-hidden">
-                    <span className="pointer-events-none absolute inset-0 opacity-35 bg-[radial-gradient(ellipse_at_top_left,_var(--tw-gradient-stops))] from-white/60 via-transparent to-transparent" />
-                    {p.kind === "stars" ? (
-                      <div className="text-center">
-                        <div className="text-3xl font-black tracking-wide drop-shadow-sm">{p.label} ⭐</div>
-                        <div className="text-xs text-slate-600 mt-1">изменение баланса</div>
+          <div className={`${!agreeConfirmed ? "pointer-events-none blur-[1px]" : ""} overflow-hidden rounded-2xl ring-1 ring-slate-200 relative bg-white`}>
+            <motion.div ref={trackRef} className="flex gap-3 p-3" animate={controls} initial={{ x: 0 }}>
+              {track.map((p, i) => (
+                <div
+                  key={i}
+                  data-card
+                  className="min-w-[132px] max-w-[132px] h-32 p-3 flex items-center justify-center rounded-2xl bg-gradient-to-br from-amber-50 via-yellow-50 to-amber-100 shadow-md ring-1 ring-amber-300 relative overflow-hidden"
+                >
+                  <span className="pointer-events-none absolute inset-0 opacity-40 bg-[radial-gradient(ellipse_at_top_left,_var(--tw-gradient-stops))] from-white/60 via-transparent to-transparent translate-x-[-20%]" />
+                  {p.kind === "stars" ? (
+                    <div className="text-center">
+                      <div className="text-3xl font-black tracking-wide drop-shadow-sm">{p.label} ⭐</div>
+                      <div className="text-xs text-slate-500 mt-1">изменение баланса</div>
+                    </div>
+                  ) : (
+                    <div className="text-center">
+                      {/* квадратный контейнер под NFT */}
+                      <div className="w-14 h-14 rounded-xl mx-auto ring-1 ring-amber-300 shadow-sm bg-white overflow-hidden">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={NFT_IMG} alt="NFT" className="w-full h-full object-contain" />
                       </div>
-                    ) : (
-                      <div className="text-center">
-                        <div className="w-16 h-16 rounded-xl mx-auto ring-1 ring-amber-300 shadow-sm bg-white overflow-hidden">
-                          <img src={(p as any).image} alt="NFT" className="w-full h-full object-contain" />
-                        </div>
-                        <div className="text-xs mt-1">Plush Pepe NFT</div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </motion.div>
-              <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-0 h-0 border-l-8 border-r-8 border-b-8 border-l-transparent border-r-transparent border-b-blue-600 drop-shadow" />
-            </div>
-
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              <button className="h-11 rounded-xl ring-1 ring-slate-200 bg-white disabled:opacity-60" onClick={fetchBalance} disabled={busy}>Обновить баланс</button>
-              <button className="h-11 rounded-xl bg-blue-600 text-white disabled:opacity-60" onClick={onSpin} disabled={busy || !agreeConfirmed}>
-                Крутить за {COST} ⭐
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {error && <div className="text-sm text-red-600 mt-2">{error}</div>}
-
-        {result && (
-          <div className="mt-4 rounded-xl bg-emerald-50 ring-1 ring-emerald-200 p-3">
-            {result.kind === "stars" ? (
-              <div>Результат: {result.label} ⭐. Новый баланс: {balance ?? "—"} ⭐</div>
-            ) : (
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-xl overflow-hidden ring-1 ring-amber-300 bg-white">
-                  <img src={(result as any).image} className="w-full h-full object-contain" />
+                      <div className="text-xs mt-1">Plush Pepe NFT</div>
+                    </div>
+                  )}
                 </div>
-                <div>Поздравляем! Вы получили <b>Plush Pepe NFT</b>. Свяжемся для выдачи приза.</div>
-              </div>
-            )}
+              ))}
+            </motion.div>
+            {/* индикатор */}
+            <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-0 h-0 border-l-8 border-r-8 border-b-8 border-l-transparent border-r-transparent border-b-blue-600 drop-shadow" />
           </div>
-        )}
+
+          {/* Кнопки */}
+          <div className={`${!agreeConfirmed ? "pointer-events-none blur-[1px]" : ""} mt-4 grid grid-cols-2 gap-3`}>
+            <button className="h-11 rounded-xl ring-1 ring-slate-200 bg-white disabled:opacity-60" onClick={fetchBalance} disabled={busy}>
+              Обновить баланс
+            </button>
+            <button className="h-11 rounded-xl bg-blue-600 text-white disabled:opacity-60" onClick={onSpin} disabled={busy || !agreeConfirmed}>
+              Крутить за {COST} ⭐
+            </button>
+          </div>
+
+          {error && <div className="text-sm text-red-600 mt-2">{error}</div>}
+
+          {/* Результат */}
+          {result && (
+            <div className="mt-4 rounded-xl bg-emerald-50 ring-1 ring-emerald-200 p-3">
+              {result.kind === "stars" ? (
+                <div>Результат: {result.label} ⭐. Новый баланс: {balance ?? "—"} ⭐</div>
+              ) : (
+                <div className="flex items-center gap-3">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={NFT_IMG} className="w-10 h-10 rounded-lg" alt="Pepe NFT" />
+                  <div>Поздравляем! Вы получили <b>Plush Pepe NFT</b>. Свяжемся для выдачи приза.</div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         <PrizeList />
       </div>
 
+      {/* Фуллскрин оверлей с GIF (хромакей зелёного удаляется на лету) */}
       <div className="fixed inset-0 z-50 hidden items-center justify-center bg-black/30 backdrop-blur-sm pointer-events-none roulette-overlay">
         <ChromaGif />
       </div>
@@ -211,6 +245,7 @@ export default function Roulette() {
   );
 }
 
+// Простой рендер хромакея для зелёного GIF
 function ChromaGif() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
@@ -226,14 +261,13 @@ function ChromaGif() {
     const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
 
     const render = () => {
-      const i = imgRef.current;
-      if (!i) return;
-      const w = 320, h = 320;
-      canvas.width = w; canvas.height = h;
+      const i = imgRef.current; if (!i) return;
+      const w = 320, h = 320; canvas.width = w; canvas.height = h;
       ctx.drawImage(i, 0, 0, w, h);
       try {
         const frame = ctx.getImageData(0, 0, w, h);
         const data = frame.data;
+        const tol = 90;
         for (let p = 0; p < data.length; p += 4) {
           const r = data[p], g = data[p+1], b = data[p+2];
           if (g > 140 && g - r > 40 && g - b > 40) data[p+3] = 0;
@@ -249,40 +283,39 @@ function ChromaGif() {
   return <canvas ref={canvasRef} className="w-64 h-64 pointer-events-none" />;
 }
 
+// Список призов: аккуратная сетка + проценты и бейдж по цвету
 function PrizeList() {
-  const items = [
-    { label: "+3", kind: "stars", note: "часто" },
-    { label: "+5", kind: "stars", note: "часто" },
-    { label: "+10", kind: "stars", note: "нормально" },
-    { label: "+15", kind: "stars", note: "нормально" },
-    { label: "+50", kind: "stars", note: "редко" },
-    { label: "+100", kind: "stars", note: "редко" },
-    { label: "+1000", kind: "stars", note: "очень редко" },
-    { label: "Plush Pepe NFT", kind: "nft", note: "ультра-редко", image: NFT_IMG },
-  ] as const;
+  const colorForPct = (p: number) =>
+    p >= 20 ? "bg-emerald-100 text-emerald-800 ring-emerald-200"
+    : p >= 10 ? "bg-amber-100 text-amber-800 ring-amber-200"
+    : p >= 2  ? "bg-orange-100 text-orange-800 ring-orange-200"
+    : "bg-rose-100 text-rose-800 ring-rose-200";
 
   return (
     <div className="mt-6 rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 p-4">
       <h3 className="text-base font-semibold">Какие призы можно получить</h3>
       <div className="mt-3 grid grid-cols-2 gap-3">
-        {items.map((it, i) => (
-          <div key={i} className="flex items-center gap-3 rounded-2xl bg-gradient-to-br from-slate-50 to-slate-100 px-3 py-3 ring-1 ring-slate-200 min-h-[64px] overflow-hidden">
-            <div className="w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center ring-1 ring-slate-200 bg-white">
-              {it.kind === "nft" ? (
-                <img src={(it as any).image} alt="NFT" className="w-full h-full object-contain" />
-              ) : (
-                <span className="text-lg font-extrabold">⭐</span>
-              )}
+        {PRIZES.map((it, i) => {
+          const pct = CHANCES.find(c => c.key === (it.kind === "nft" ? it.label : it.label))?.pct ?? 0;
+          return (
+            <div key={i} className="rounded-2xl bg-gradient-to-br from-slate-50 to-slate-100 ring-1 ring-slate-200 p-3">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-xl overflow-hidden flex items-center justify-center ring-1 ring-slate-200 bg-white">
+                  {it.kind === "nft" ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={NFT_IMG} alt="NFT" className="w-full h-full object-contain" />
+                  ) : (
+                    <span className="text-xl font-extrabold">⭐</span>
+                  )}
+                </div>
+                <div className="flex-1">
+                  <div className="font-semibold">{it.kind === "stars" ? `${it.label} ⭐` : it.label}</div>
+                </div>
+                <span className={`text-[11px] px-2 py-1 rounded-full ring-1 ${colorForPct(pct)}`}>{pct}%</span>
+              </div>
             </div>
-            <div className="flex-1">
-              <div className="font-semibold">{it.kind==="stars" ? `${it.label} ⭐` : it.label}</div>
-              <div className="text-xs text-slate-500">{it.note}</div>
-            </div>
-            <span className="text-[10px] uppercase tracking-wide px-2 py-1 rounded-full bg-amber-100 text-amber-800 ring-1 ring-amber-200 whitespace-nowrap">
-              {it.note}
-            </span>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
