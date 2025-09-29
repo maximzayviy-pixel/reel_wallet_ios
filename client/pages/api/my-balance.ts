@@ -1,37 +1,30 @@
-import type { NextApiRequest, NextApiResponse } from "next";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL as string,
-  process.env.SUPABASE_SERVICE_ROLE_KEY as string, // только сервисный ключ, не anon
-  { auth: { persistSession: false } }
-);
+// pages/api/my-balance.ts
+import type { NextApiRequest, NextApiResponse } from 'next';
+import { createClient } from '@supabase/supabase-js';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  try {
-    const raw = (req.query.tg_id ?? "").toString().trim();
-    const tgId = Number(raw);
+  if (req.method !== 'GET') return res.status(405).json({ ok: false, error: 'METHOD_NOT_ALLOWED' });
 
-    if (!tgId || !Number.isFinite(tgId)) {
-      return res.status(400).json({ error: "tg_id is required" });
-    }
+  const tg_id = Number(req.query.tg_id);
+  if (!tg_id) return res.status(400).json({ ok: false, error: 'tg_id_required' });
 
-    // вызываем функцию напрямую
-    const { data, error } = await supabase.rpc("get_balance_by_tg", { tg_id: tgId });
+  const url = process.env.SUPABASE_URL!;
+  const key = process.env.SUPABASE_SERVICE_KEY!;
+  const supabase = createClient(url, key, { auth: { persistSession: false } });
 
-    if (error) throw error;
+  const { data, error } = await supabase
+    .from('balances_by_tg')
+    .select('*')
+    .eq('tg_id', tg_id)
+    .maybeSingle();
 
-    // get_balance_by_tg обычно возвращает массив, берём первую строку
-    const row = Array.isArray(data) ? data[0] : data;
+  if (error) return res.status(500).json({ ok: false, error: error.message });
 
-    const stars = Number(row?.stars ?? 0);
-    const ton = Number(row?.ton ?? 0);
-    const total_rub =
-      row?.total_rub !== undefined ? Number(row.total_rub) : stars / 2 + ton * 300;
-
-    return res.status(200).json({ stars, ton, total_rub });
-  } catch (e: any) {
-    console.error("my-balance error", e);
-    return res.status(500).json({ error: "internal_error" });
-  }
+  return res.status(200).json({
+    ok: true,
+    tg_id,
+    stars: Number(data?.stars || 0),
+    ton: Number(data?.ton || 0),
+    total_rub: Number(data?.total_rub || 0),
+  });
 }
