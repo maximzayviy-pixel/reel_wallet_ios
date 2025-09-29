@@ -37,9 +37,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   let { from_tg_id, to_tg_id, amount_stars, note } = (req.body || {}) as Body;
 
-  // в хедере может быть initData, но тут его не валидируем — это отдельная задача
-  // const initData = req.headers["x-telegram-init-data"] as string | undefined;
-
   // валидации
   from_tg_id = Number(from_tg_id || 0);
   to_tg_id = Number(to_tg_id || 0);
@@ -50,20 +47,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!amount_stars || amount_stars <= 0) return bad(res, 400, "BAD_AMOUNT");
 
   try {
-    // убедимся, что оба юзера существуют (минимально)
+    // убедимся, что оба юзера существуют и не заблокированы
     const { data: fromUser } = await supabase
       .from("users")
-      .select("id,tg_id")
+      .select("id,tg_id,is_banned")
       .eq("tg_id", from_tg_id)
       .maybeSingle();
     if (!fromUser) return bad(res, 402, "SENDER_NOT_FOUND");
+    if (fromUser.is_banned) return bad(res, 403, "SENDER_BANNED");
 
     const { data: toUser } = await supabase
       .from("users")
-      .select("id,tg_id")
+      .select("id,tg_id,is_banned")
       .eq("tg_id", to_tg_id)
       .maybeSingle();
     if (!toUser) return bad(res, 404, "RECEIVER_NOT_FOUND");
+    if (toUser.is_banned) return bad(res, 403, "RECEIVER_BANNED");
 
     // баланс отправителя
     const { data: balRow } = await supabase

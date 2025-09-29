@@ -1,4 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { createClient } from '@supabase/supabase-js';
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || process.env.TELEGRAM_BOT || process.env.TG_BOT_TOKEN;
 
@@ -18,6 +19,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (!Number.isFinite(stars) || stars <= 0) {
       return res.status(400).json({ ok: false, error: 'amount_stars required' });
+    }
+
+    // Check if the user is banned before generating an invoice
+    try {
+      const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+      const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+      if (SUPABASE_URL && SERVICE_KEY && tg_id) {
+        const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
+        const { data: userRec, error: uErr } = await supabase.from('users').select('id,is_banned').eq('tg_id', tg_id).maybeSingle();
+        if (uErr) {
+          return res.status(500).json({ ok: false, error: uErr.message });
+        }
+        if (userRec && userRec.is_banned) {
+          return res.status(403).json({ ok: false, error: 'USER_BANNED' });
+        }
+      }
+    } catch (e: any) {
+      // ignore supabase errors here; invoice generation will fail later if misconfigured
     }
 
     const payload = `stars_topup:${tg_id || ''}:${Date.now()}:${stars}`;
