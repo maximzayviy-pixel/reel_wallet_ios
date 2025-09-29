@@ -1,9 +1,7 @@
-// pages/obmen.tsx — Marketplace for Telegram Collectible Gifts (beta)
-import { useEffect, useState } from "react";
+// pages/obmen.tsx — маркетплейс подарков
+import { useEffect, useMemo, useState } from "react";
 import Layout from "../components/Layout";
 import StickerPlayer from "../components/StickerPlayer";
-
-declare global { interface Window { Telegram: any } }
 
 type Gift = {
   id: number;
@@ -11,197 +9,192 @@ type Gift = {
   slug: string;
   number: number;
   tme_link: string;
-  price_rub: number;
+  price_rub: number | null;
+  value_rub: number | null;
   image_url?: string | null;
   anim_url?: string | null;
   tgs_url?: string | null;
+  model?: string | null;
+  backdrop?: string | null;
+  pattern?: string | null;
+  amount_total?: number | null;
+  amount_issued?: number | null;
 };
-
-function CardSkeleton() {
-  return (
-    <div className="rounded-2xl p-3 bg-white ring-1 ring-slate-200 animate-pulse">
-      <div className="aspect-square rounded-xl bg-slate-100" />
-      <div className="mt-2 h-3 w-24 bg-slate-100 rounded" />
-      <div className="mt-1 h-3 w-16 bg-slate-100 rounded" />
-      <div className="mt-2 h-4 w-20 bg-slate-100 rounded" />
-    </div>
-  );
-}
 
 export default function Obmen() {
   const [items, setItems] = useState<Gift[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError]   = useState<string | null>(null);
   const [selected, setSelected] = useState<Gift | null>(null);
   const [buying, setBuying] = useState(false);
-  const [showBeta, setShowBeta] = useState(false);
+  const [showBeta, setShowBeta] = useState(true);
 
-  // beta modal once
   useEffect(() => {
-    if (!localStorage.getItem("gift_shop_beta_shown")) setShowBeta(true);
-  }, []);
-  const closeBeta = () => {
-    localStorage.setItem("gift_shop_beta_shown", "1");
-    setShowBeta(false);
-  };
-
-  // Telegram initData
-  useEffect(() => {
-    try {
-      window?.Telegram?.WebApp?.ready?.();
-      const initData = window?.Telegram?.WebApp?.initData || "";
-      if (initData) localStorage.setItem("tg_init_data", initData);
-    } catch {}
-  }, []);
-
-  // load gifts
-  useEffect(() => {
-    (async () => {
-      try {
-        const r = await fetch("/api/gifts/list");
-        const j = await r.json();
-        if (j.ok) setItems(j.items || []);
-        else setError(j.error || "Ошибка загрузки");
-      } catch {
-        setError("Ошибка сети");
-      } finally {
-        setLoading(false);
-      }
-    })();
+    // читаем из localStorage скрыт ли бета-баннер
+    try { if (localStorage.getItem("beta_ack") === "1") setShowBeta(false); } catch {}
+    fetch("/api/gifts/list")
+      .then(r => r.json())
+      .then(j => { if (j.ok) setItems(j.items); else setError(j.error || "Ошибка загрузки"); })
+      .catch(() => setError("Ошибка сети"))
+      .finally(() => setLoading(false));
   }, []);
 
   const buy = async (gift: Gift) => {
     setBuying(true);
     try {
-      const initData =
-        window?.Telegram?.WebApp?.initData ||
-        localStorage.getItem("tg_init_data") ||
-        "";
       const r = await fetch("/api/gifts/buy", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-init-data": initData,
+          "x-telegram-init-data": (window as any)?.Telegram?.WebApp?.initData || "",
         },
         body: JSON.stringify({ gift_id: gift.id }),
       });
       const j = await r.json();
       if (!j.ok) throw new Error(j.error || "Ошибка");
       window.open(j.tme_link, "_blank");
+      alert("Покупка успешна! Ссылка на подарок открыта.");
     } catch (e: any) {
-      alert("Не удалось купить: " + e.message);
+      alert("Не удалось купить: " + (e?.message || "Ошибка"));
     } finally {
       setBuying(false);
     }
   };
 
   return (
-    <Layout title="Обмен — маркетплейс подарков">
-      <div className="max-w-2xl mx-auto p-4 sm:p-6">
-
-        {/* Beta notice */}
+    <Layout title="Обмен — подарки Telegram">
+      <div className="mx-auto max-w-5xl p-4 sm:p-6">
         {showBeta && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-            <div className="w-[92%] max-w-md rounded-2xl bg-white p-5 shadow-xl">
-              <div className="text-lg font-semibold">Магазин в бете</div>
-              <p className="mt-2 text-sm text-slate-600">
-                Это ранняя версия витрины коллекционных подарков Telegram. Возможны баги и задержки.
-              </p>
-              <div className="mt-4 flex justify-end">
-                <button onClick={closeBeta} className="h-10 px-4 rounded-xl bg-blue-600 text-white">Окей</button>
-              </div>
+          <div className="mb-4 rounded-2xl bg-yellow-50 ring-1 ring-yellow-200 p-4 text-yellow-900">
+            <div className="font-semibold mb-1">Бета-версия магазина</div>
+            <div className="text-sm opacity-90">
+              Функции ещё дорабатываются — возможны баги и задержки загрузки превью.
+            </div>
+            <div className="mt-3">
+              <button
+                onClick={() => { setShowBeta(false); try { localStorage.setItem("beta_ack", "1"); } catch {} }}
+                className="h-9 px-3 rounded-lg bg-yellow-600 text-white"
+              >
+                Окей
+              </button>
             </div>
           </div>
         )}
 
+        {loading && <div className="text-slate-500">Загрузка…</div>}
         {error && <div className="text-red-600">{error}</div>}
 
-        {loading ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-            {Array.from({ length: 6 }).map((_, i) => <CardSkeleton key={i} />)}
-          </div>
-        ) : items.length === 0 ? (
-          <div className="text-center text-slate-500 py-16">
-            Пока нет активных подарков. Загляните позже.
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-            {items.map((g) => (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+          {items.map((g) => {
+            const price = g.price_rub ?? g.value_rub ?? 0;
+            return (
               <button
                 key={g.id}
                 onClick={() => setSelected(g)}
-                className="group rounded-3xl bg-gradient-to-b from-white to-slate-50 ring-1 ring-slate-200 p-3 text-left shadow-sm hover:shadow transition"
+                className="group rounded-2xl bg-white ring-1 ring-slate-200 p-3 text-left shadow-sm hover:shadow-md transition"
               >
-                <div className="aspect-square rounded-2xl bg-slate-50 overflow-hidden flex items-center justify-center relative">
-                  <div className="absolute inset-0 pointer-events-none opacity-60 mix-blend-multiply bg-[radial-gradient(60%_60%_at_50%_40%,#93c5fd_10%,transparent_60%)]" />
+                <div className="relative aspect-[1/1] rounded-xl bg-slate-50 overflow-hidden flex items-center justify-center">
                   {g.tgs_url ? (
-                    <StickerPlayer tgsUrl={g.tgs_url} poster={g.image_url || null} className="relative z-10 w-full h-full" />
-                  ) : g.anim_url ? (
-                    <video
-                      src={g.anim_url}
-                      autoPlay
-                      loop
-                      muted
-                      playsInline
-                      poster={g.image_url || undefined}
-                      className="relative z-10 w-full h-full object-cover"
-                    />
+                    <StickerPlayer tgsUrl={g.tgs_url} poster={g.image_url ?? undefined} className="w-full h-full" />
                   ) : g.image_url ? (
-                    <img src={g.image_url} alt={g.title} className="relative z-10 w-full h-full object-cover" />
+                    <img src={g.image_url} alt={g.title} className="w-full h-full object-cover" />
                   ) : (
-                    <span className="relative z-10 text-5xl">🎁</span>
+                    <span className="text-4xl">🎁</span>
                   )}
                 </div>
                 <div className="mt-2">
-                  <div className="text-sm font-medium truncate">{g.title}</div>
-                  <div className="text-[11px] text-slate-500">#{g.number}</div>
-                  <div className="mt-1 inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2 py-1 text-[12px] font-semibold text-emerald-700">
-                    {g.price_rub} ₽
+                  <div className="text-sm font-medium line-clamp-1">{g.title}</div>
+                  <div className="text-xs text-slate-500">#{g.number}</div>
+                  <div className="text-sm font-semibold mt-1 text-emerald-600">
+                    {price.toLocaleString("ru-RU")} ₽
                   </div>
                 </div>
               </button>
-            ))}
-          </div>
-        )}
+            );
+          })}
+        </div>
 
         {/* Modal */}
         {selected && (
-          <div className="fixed inset-0 bg-black/30 flex items-end sm:items-center justify-center z-50" onClick={() => setSelected(null)}>
-            <div className="bg-white rounded-2xl w-full sm:w-[440px] p-4 m-2 shadow-xl" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="fixed inset-0 bg-black/30 flex items-end sm:items-center justify-center z-50"
+            onClick={() => setSelected(null)}
+          >
+            <div
+              className="bg-white rounded-2xl w-full sm:w-[520px] p-4 m-2"
+              onClick={(e) => e.stopPropagation()}
+            >
               <div className="flex gap-3">
-                <div className="w-28 h-28 rounded-xl bg-slate-50 overflow-hidden flex items-center justify-center relative">
-                  <div className="absolute inset-0 pointer-events-none opacity-60 mix-blend-multiply bg-[radial-gradient(60%_60%_at_50%_40%,#93c5fd_10%,transparent_60%)]" />
+                <div className="w-28 h-28 rounded-xl bg-slate-50 overflow-hidden relative">
                   {selected.tgs_url ? (
-                    <StickerPlayer tgsUrl={selected.tgs_url} poster={selected.image_url || null} className="relative z-10 w-full h-full" />
-                  ) : selected.anim_url ? (
-                    <video
-                      src={selected.anim_url}
-                      autoPlay
-                      loop
-                      muted
-                      playsInline
-                      poster={selected.image_url || undefined}
-                      className="relative z-10 w-full h-full object-cover"
+                    <StickerPlayer
+                      tgsUrl={selected.tgs_url}
+                      poster={selected.image_url ?? undefined}
+                      className="w-full h-full"
                     />
                   ) : selected.image_url ? (
-                    <img src={selected.image_url} className="relative z-10 w-full h-full object-cover" />
+                    <img src={selected.image_url} className="w-full h-full object-cover" />
                   ) : (
-                    <span className="relative z-10 text-4xl">🎁</span>
+                    <span className="text-4xl flex items-center justify-center h-full">🎁</span>
                   )}
                 </div>
-                <div className="flex-1">
+
+                <div className="flex-1 min-w-0">
                   <div className="font-semibold">{selected.title}</div>
                   <div className="text-xs text-slate-500 mb-2">
                     <a className="underline" href={selected.tme_link} target="_blank" rel="noreferrer">
                       Открыть в Telegram
                     </a>
+                    &nbsp;·&nbsp;#{selected.number}
                   </div>
-                  <div className="text-2xl font-bold">{selected.price_rub} ₽</div>
+                  <div className="text-2xl font-bold">
+                    {(selected.price_rub ?? selected.value_rub ?? 0).toLocaleString("ru-RU")} ₽
+                  </div>
                 </div>
               </div>
+
+              {/* характеристики */}
+              <div className="mt-4 grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+                {selected.model && (
+                  <>
+                    <div className="text-slate-500">Модель</div>
+                    <div className="font-medium">{selected.model}</div>
+                  </>
+                )}
+                {selected.backdrop && (
+                  <>
+                    <div className="text-slate-500">Фон</div>
+                    <div className="font-medium">{selected.backdrop}</div>
+                  </>
+                )}
+                {selected.pattern && (
+                  <>
+                    <div className="text-slate-500">Узор</div>
+                    <div className="font-medium">{selected.pattern}</div>
+                  </>
+                )}
+                {(selected.amount_total || selected.amount_issued) && (
+                  <>
+                    <div className="text-slate-500">Количество</div>
+                    <div className="font-medium">
+                      {selected.amount_total?.toLocaleString("ru-RU")}
+                      {selected.amount_issued
+                        ? `, выпущено ${selected.amount_issued.toLocaleString("ru-RU")}`
+                        : ""}
+                    </div>
+                  </>
+                )}
+              </div>
+
               <div className="mt-4 grid grid-cols-2 gap-3">
-                <button className="h-11 rounded-xl ring-1 ring-slate-200" onClick={() => setSelected(null)}>Отмена</button>
-                <button className="h-11 rounded-xl bg-blue-600 text-white disabled:opacity-60" disabled={buying} onClick={() => buy(selected!)}>
+                <button className="h-11 rounded-xl ring-1 ring-slate-200" onClick={() => setSelected(null)}>
+                  Отмена
+                </button>
+                <button
+                  className="h-11 rounded-xl bg-blue-600 text-white disabled:opacity-60"
+                  disabled={buying}
+                  onClick={() => buy(selected!)}
+                >
                   Купить
                 </button>
               </div>
