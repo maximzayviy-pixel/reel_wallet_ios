@@ -5,17 +5,17 @@ import lottie, { AnimationItem } from "lottie-web";
 type Props = {
   tgsUrl?: string | null;
   poster?: string | null;
-  className?: string;
+  className?: string; // просто размеры, НЕ absolute!
 };
 
 export default function StickerPlayer({ tgsUrl, poster, className }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const animRef = useRef<AnimationItem | null>(null);
-  const [loaded, setLoaded] = useState(false);
+  const [ready, setReady] = useState(false); // true когда лотти реально отрисовался
 
   useEffect(() => {
-    let cancelled = false;
-    setLoaded(false);
+    let stopped = false;
+    setReady(false);
     animRef.current?.destroy();
     animRef.current = null;
 
@@ -23,12 +23,13 @@ export default function StickerPlayer({ tgsUrl, poster, className }: Props) {
 
     (async () => {
       try {
-        const proxied = `/api/gifts/tgs?u=${encodeURIComponent(tgsUrl)}`;
-        const resp = await fetch(proxied, { cache: "force-cache" });
+        const resp = await fetch(`/api/gifts/tgs?u=${encodeURIComponent(tgsUrl)}`, {
+          cache: "force-cache",
+        });
         if (!resp.ok) throw new Error("tgs fetch failed");
         const data = await resp.json();
+        if (stopped || !wrapRef.current) return;
 
-        if (cancelled || !wrapRef.current) return;
         animRef.current = lottie.loadAnimation({
           container: wrapRef.current,
           renderer: "svg",
@@ -36,16 +37,15 @@ export default function StickerPlayer({ tgsUrl, poster, className }: Props) {
           autoplay: true,
           animationData: data,
         });
-        animRef.current.addEventListener("DOMLoaded", () => !cancelled && setLoaded(true));
-        animRef.current.addEventListener("data_failed", () => !cancelled && setLoaded(false));
-      } catch (e) {
-        console.warn("TGS load error:", e);
-        if (!cancelled) setLoaded(false);
+        animRef.current.addEventListener("DOMLoaded", () => !stopped && setReady(true));
+        animRef.current.addEventListener("data_failed", () => !stopped && setReady(false));
+      } catch {
+        if (!stopped) setReady(false);
       }
     })();
 
     return () => {
-      cancelled = true;
+      stopped = true;
       animRef.current?.destroy();
       animRef.current = null;
     };
@@ -53,16 +53,17 @@ export default function StickerPlayer({ tgsUrl, poster, className }: Props) {
 
   return (
     <div className={`relative ${className || ""}`}>
-      {/* Постер под анимацией — виден, пока loaded=false */}
+      {/* Постер — всегда под анимацией, плавно гасим когда лотти загрузился */}
       {poster && (
         <img
           src={poster}
           alt=""
-          className="absolute inset-0 w-full h-full object-cover rounded-2xl"
-          style={{ opacity: loaded ? 0 : 1, transition: "opacity .25s" }}
+          className="absolute inset-0 w-full h-full object-cover rounded-2xl select-none pointer-events-none"
+          style={{ opacity: ready ? 0 : 1, transition: "opacity .25s" }}
+          onError={() => setReady(false)}
         />
       )}
-      {/* Контейнер под lottie */}
+      {/* Контейнер лотти */}
       <div ref={wrapRef} className="absolute inset-0 w-full h-full" />
     </div>
   );
