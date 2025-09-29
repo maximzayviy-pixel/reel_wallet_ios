@@ -7,7 +7,7 @@ function take(html: string, re: RegExp) {
   const m = html.match(re);
   return m ? m[1].trim() : "";
 }
-function toNumber(s: string | null | undefined) {
+function toNumber(s?: string | null) {
   if (!s) return null;
   const norm = s.replace(/\u00A0|\s/g, "").replace(",", ".");
   const n = Number(norm);
@@ -21,52 +21,54 @@ async function fetchGiftPreview(link: string) {
       "User-Agent":
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36",
       "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7"
-    }
+      "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+    },
   });
   const html = await r.text();
 
-  // картинки/анимки
+  // источники превью
   const image =
     take(html, /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
     take(html, /<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i);
+
   const video =
     take(html, /<meta[^>]+property=["']og:video["'][^>]+content=["']([^"']+)["']/i) ||
     take(html, /<meta[^>]+property=["']og:video:url["'][^>]+content=["']([^"']+)["']/i) ||
     take(html, /<video[^>]+src=["']([^"']+)["']/i) ||
     take(html, /<source[^>]+src=["']([^"']+)["'][^>]*>/i);
+
   const tgs =
     take(html, /<source[^>]+type=["']application\/x-tgsticker["'][^>]+srcset=["']([^"']+)["']/i) ||
     take(html, /<source[^>]+type=["']application\/x-tgsticker["'][^>]+src=["']([^"']+)["']/i);
 
-  // «Ценность ~ 1 974,00 RUB» (ru) или "Value ~ 23.45 RUB" (en)
+  // «Ценность ~ 1 974,00 RUB» / "Value ~ 23.45 RUB"
   const valueRaw =
     take(html, /Ценность[^~]*~\s*([\d\s.,]+)\s*RUB/i) ||
     take(html, /Value[^~]*~\s*([\d\s.,]+)\s*RUB/i);
   const value_rub = toNumber(valueRaw);
 
-  // Характеристики: Модель / Фон / Узор
+  // характеристики (ru/en)
   const model =
-    take(html, /<div[^>]*class=["']tgme_gift_stats_name["'][^>]*>\s*Модель\s*<\/div>\s*<div[^>]*class=["']tgme_gift_stats_value["'][^>]*>([^<]+)/i) ||
-    take(html, /<div[^>]*class=["']tgme_gift_stats_name["'][^>]*>\s*Model\s*<\/div>\s*<div[^>]*class=["']tgme_gift_stats_value["'][^>]*>([^<]+)/i);
+    take(html, /tgme_gift_stats_name[^>]*>\s*Модель\s*<\/div>\s*<div[^>]*tgme_gift_stats_value[^>]*>([^<]+)/i) ||
+    take(html, /tgme_gift_stats_name[^>]*>\s*Model\s*<\/div>\s*<div[^>]*tgme_gift_stats_value[^>]*>([^<]+)/i);
 
   const backdrop =
-    take(html, /<div[^>]*class=["']tgme_gift_stats_name["'][^>]*>\s*Фон\s*<\/div>\s*<div[^>]*class=["']tgme_gift_stats_value["'][^>]*>([^<]+)/i) ||
-    take(html, /<div[^>]*class=["']tgme_gift_stats_name["'][^>]*>\s*Background|Backdrop\s*<\/div>\s*<div[^>]*class=["']tgme_gift_stats_value["'][^>]*>([^<]+)/i);
+    take(html, /tgme_gift_stats_name[^>]*>\s*Фон\s*<\/div>\s*<div[^>]*tgme_gift_stats_value[^>]*>([^<]+)/i) ||
+    take(html, /tgme_gift_stats_name[^>]*>\s*(Background|Backdrop)\s*<\/div>\s*<div[^>]*tgme_gift_stats_value[^>]*>([^<]+)/i);
 
   const pattern =
-    take(html, /<div[^>]*class=["']tgme_gift_stats_name["'][^>]*>\s*Узор\s*<\/div>\s*<div[^>]*class=["']tgme_gift_stats_value["'][^>]*>([^<]+)/i) ||
-    take(html, /<div[^>]*class=["']tgme_gift_stats_name["'][^>]*>\s*Pattern\s*<\/div>\s*<div[^>]*class=["']tgme_gift_stats_value["'][^>]*>([^<]+)/i);
+    take(html, /tgme_gift_stats_name[^>]*>\s*Узор\s*<\/div>\s*<div[^>]*tgme_gift_stats_value[^>]*>([^<]+)/i) ||
+    take(html, /tgme_gift_stats_name[^>]*>\s*Pattern\s*<\/div>\s*<div[^>]*tgme_gift_stats_value[^>]*>([^<]+)/i);
 
-  // Количество: "Количество 116 322, выпущено 119 573"
+  // Количество (всего) и выпущено
   const amountTotalRaw =
-    take(html, /Количество[^<]*<\/div>\s*<div[^>]*class=["']tgme_gift_stats_value["'][^>]*>\s*([\d\s.,]+)/i) ||
-    take(html, /Amount[^<]*<\/div>\s*<div[^>]*class=["']tgme_gift_stats_value["'][^>]*>\s*([\d\s.,]+)/i);
+    take(html, /Количество[^<]*<\/div>\s*<div[^>]*tgme_gift_stats_value[^>]*>\s*([\d\s.,]+)/i) ||
+    take(html, /Amount[^<]*<\/div>\s*<div[^>]*tgme_gift_stats_value[^>]*>\s*([\d\s.,]+)/i);
   const amountIssuedRaw =
-    take(html, /выпущено\s*([\d\s.,]+)/i) ||
-    take(html, /issued\s*([\d\s.,]+)/i);
-  const amount_total = toNumber(amountTotalRaw) ?? null;
-  const amount_issued = toNumber(amountIssuedRaw) ?? null;
+    take(html, /выпущено\s*([\d\s.,]+)/i) || take(html, /issued\s*([\d\s.,]+)/i);
+
+  const amount_total = toNumber(amountTotalRaw);
+  const amount_issued = toNumber(amountIssuedRaw);
 
   return {
     image_url: image || null,
@@ -77,7 +79,7 @@ async function fetchGiftPreview(link: string) {
     backdrop: backdrop || null,
     pattern: pattern || null,
     amount_total,
-    amount_issued
+    amount_issued,
   };
 }
 
@@ -90,7 +92,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!id) return res.status(400).json({ ok: false, error: "id_required" });
 
   const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
-  const { data: gift, error } = await supabase.from("gifts").select("id,tme_link").eq("id", id).maybeSingle();
+  const { data: gift, error } = await supabase
+    .from("gifts")
+    .select("id,tme_link")
+    .eq("id", id)
+    .maybeSingle();
+
   if (error || !gift) return res.status(404).json({ ok: false, error: "gift_not_found" });
 
   const parsed = await fetchGiftPreview(gift.tme_link);
