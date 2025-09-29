@@ -1,157 +1,67 @@
-// pages/api/transfer-stars.ts
+// client/pages/api/transfer-stars.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createClient } from "@supabase/supabase-js";
 
 export const config = { api: { bodyParser: true } };
 
-type Body = {
-  from_tg_id?: number;
-  to_tg_id?: number;
-  amount_stars?: number; // целое, >=1
-  note?: string;
-};
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 
-const ok = (res: NextApiResponse, body: any = { ok: true }) =>
-  res.status(200).json(body);
-const bad = (res: NextApiResponse, code: number, error: string) =>
-  res.status(code).json({ ok: false, error });
+const supabaseForAuth = createClient(SUPABASE_URL, ANON_KEY, {
+  auth: { persistSession: false },
+});
+const supabaseForDB = createClient(SUPABASE_URL, SERVICE_KEY, {
+  auth: { persistSession: false },
+});
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== "POST") return ok(res, { ok: true });
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
-  const SUPABASE_URL =
-    process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-  const SERVICE_KEY =
-    process.env.SUPABASE_SERVICE_KEY ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    "";
-  const LEDGER = process.env.TABLE_LEDGER || "ledger";
-  const REFRESH_BALANCES_RPC = process.env.RPC_REFRESH_BALANCES || "";
+  // --- 1. Проверка токена ---
+  const authHeader = req.headers.authorization || "";
+  const tokenMatch = authHeader.match(/^Bearer (.+)$/);
+  if (!tokenMatch) return res.status(401).json({ error: "Authorization required" });
+  const accessToken = tokenMatch[1];
 
-  if (!SUPABASE_URL || !SERVICE_KEY) {
-    return bad(res, 500, "NO_SUPABASE_CREDS");
+  const { data: userData, error: userErr } = await supabaseForAuth.auth.getUser(accessToken);
+  if (userErr || !userData?.user) {
+    return res.status(401).json({ error: "Invalid or expired token" });
   }
-  const supabase = createClient(SUPABASE_URL, SERVICE_KEY, {
-    auth: { persistSession: false },
-  });
+  const user = userData.user;
+  const fromTgId = user.user_metadata?.telegram_id;
+  if (!fromTgId) {
+    return res.status(400).json({ error: "No telegram id linked to account" });
+  }
 
-  let { from_tg_id, to_tg_id, amount_stars, note } = (req.body || {}) as Body;
+  // --- 2. Валидация входных данных ---
+  const { to_tg_id, amount_stars, note } = req.body || {};
+  const numericAmount = Math.floor(Number(amount_stars || 0));
+  if (!to_tg_id || !numericAmount || numericAmount <= 0) {
+    return res.status(400).json({ error: "Invalid input" });
+  }
+  if (Number(to_tg_id) === Number(fromTgId)) {
+    return res.status(400).json({ error: "SELF_TRANSFER_FORBIDDEN" });
+  }
 
-  // в хедере может быть initData, но тут его не валидируем — это отдельная задача
-  // const initData = req.headers["x-telegram-init-data"] as string | undefined;
-
-  // валидации
-  from_tg_id = Number(from_tg_id || 0);
-  to_tg_id = Number(to_tg_id || 0);
-  amount_stars = Math.floor(Number(amount_stars || 0));
-
-  if (!from_tg_id || !to_tg_id) return bad(res, 400, "BAD_IDS");
-  if (from_tg_id === to_tg_id) return bad(res, 400, "SELF_TRANSFER_FORBIDDEN");
-  if (!amount_stars || amount_stars <= 0) return bad(res, 400, "BAD_AMOUNT");
-
+  // --- 3. Вызов защищённой RPC ---
   try {
-    // убедимся, что оба юзера существуют (минимально)
-    const { data: fromUser } = await supabase
-      .from("users")
-      .select("id,tg_id")
-      .eq("tg_id", from_tg_id)
-      .maybeSingle();
-    if (!fromUser) return bad(res, 402, "SENDER_NOT_FOUND");
-
-    const { data: toUser } = await supabase
-      .from("users")
-      .select("id,tg_id")
-      .eq("tg_id", to_tg_id)
-      .maybeSingle();
-    if (!toUser) return bad(res, 404, "RECEIVER_NOT_FOUND");
-
-    // баланс отправителя
-    const { data: balRow } = await supabase
-      .from("balances_by_tg")
-      .select("stars")
-      .eq("tg_id", from_tg_id)
-      .maybeSingle();
-
-    const senderStars = Number(balRow?.stars || 0);
-    if (senderStars < amount_stars) return bad(res, 402, "INSUFFICIENT_FUNDS");
-
-    // расчёт рублёвого эквивалента
-    const rate = 0.5; // 2⭐ = 1₽
-    const rub = amount_stars * rate;
-
-    // связующий id перевода — удобно для аудита
-    const transfer_id =
-      typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : `${Date.now()}_${Math.random().toString(36).slice(2)}`;
-
-    // две проводки в ledger
-    const payloadCommon = {
-      rate_used: rate,
-      status: "ok",
-      metadata: {
-        kind: "p2p",
-        transfer_id,
-        note: note?.slice(0, 120) || null,
-      } as any,
-    };
-
-    const { error: insErr } = await supabase.from(LEDGER).insert([
-      // списание у отправителя
-      {
-        tg_id: from_tg_id,
-        type: "p2p_send",
-        asset_amount: -amount_stars, // -⭐
-        amount_rub: -rub, // минус эквивалент
-        ...payloadCommon,
-      },
-      // зачисление у получателя
-      {
-        tg_id: to_tg_id,
-        type: "p2p_recv",
-        asset_amount: amount_stars, // +⭐
-        amount_rub: rub,
-        ...payloadCommon,
-      },
-    ]);
-
-    if (insErr) {
-      console.error("ledger insert failed:", insErr);
-      return bad(res, 500, "LEDGER_WRITE_FAILED");
-    }
-
-    // опционально обновить материализованное представление
-    if (REFRESH_BALANCES_RPC) {
-      try {
-        await supabase.rpc(REFRESH_BALANCES_RPC as any);
-      } catch {}
-    }
-
-    // лог (необязательно)
-    try {
-      await supabase.from("webhook_logs").insert([
-        {
-          kind: "p2p_transfer",
-          tg_id: from_tg_id,
-          payload: {
-            to_tg_id,
-            amount_stars,
-            transfer_id,
-          },
-        },
-      ]);
-    } catch {}
-
-    return ok(res, {
-      ok: true,
-      transfer_id,
-      from_tg_id,
-      to_tg_id,
-      amount_stars,
-      amount_rub: rub,
+    const { data, error } = await supabaseForDB.rpc("transfer_stars", {
+      p_from_tg_id: fromTgId,
+      p_to_tg_id: Number(to_tg_id),
+      p_amount: numericAmount,
+      p_actor_user_id: user.id,
+      p_note: note?.slice(0, 120) || null,
     });
-  } catch (e: any) {
-    console.error("transfer-stars error:", e?.message || e);
-    return bad(res, 500, "SERVER_ERROR");
+
+    if (error) {
+      console.error("transfer_stars error:", error);
+      return res.status(400).json({ error: error.message });
+    }
+
+    return res.status(200).json({ ok: true, result: data });
+  } catch (err) {
+    console.error("unexpected:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
   }
 }
