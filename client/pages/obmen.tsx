@@ -1,10 +1,22 @@
 // pages/obmen.tsx — Marketplace for NFT gifts (beta)
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Layout from "../components/Layout";
 
+declare global {
+  interface Window {
+    Telegram: any;
+  }
+}
+
 type Gift = {
-  id: number; title: string; slug: string; number: number;
-  tme_link: string; price_rub: number; image_url?: string | null; anim_url?: string | null;
+  id: number;
+  title: string;
+  slug: string;
+  number: number;
+  tme_link: string;
+  price_rub: number;
+  image_url?: string | null;
+  anim_url?: string | null;
 };
 
 function CardSkeleton() {
@@ -26,17 +38,26 @@ export default function Obmen() {
   const [buying, setBuying] = useState(false);
   const [showBeta, setShowBeta] = useState(false);
 
-  // one-time beta modal
+  // показать бета-модалку 1 раз
   useEffect(() => {
     const flag = localStorage.getItem("gift_shop_beta_shown");
     if (!flag) setShowBeta(true);
   }, []);
-
   const closeBeta = () => {
     localStorage.setItem("gift_shop_beta_shown", "1");
     setShowBeta(false);
   };
 
+  // Telegram initData
+  useEffect(() => {
+    try {
+      window?.Telegram?.WebApp?.ready?.();
+      const initData = window?.Telegram?.WebApp?.initData || "";
+      if (initData) localStorage.setItem("tg_init_data", initData);
+    } catch {}
+  }, []);
+
+  // загрузка каталога
   useEffect(() => {
     (async () => {
       try {
@@ -55,17 +76,22 @@ export default function Obmen() {
   const buy = async (gift: Gift) => {
     setBuying(true);
     try {
+      const initData =
+        window?.Telegram?.WebApp?.initData ||
+        localStorage.getItem("tg_init_data") ||
+        "";
+
       const r = await fetch("/api/gifts/buy", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-init-data": (window as any)?.Telegram?.WebApp?.initData || "",
+          "x-init-data": initData,
         },
         body: JSON.stringify({ gift_id: gift.id }),
       });
       const j = await r.json();
       if (!j.ok) throw new Error(j.error || "Ошибка");
-      window.open(j.tme_link, "_blank"); // перейти к передаче подарка в Telegram
+      window.open(j.tme_link, "_blank");
     } catch (e: any) {
       alert("Не удалось купить: " + e.message);
     } finally {
@@ -76,17 +102,20 @@ export default function Obmen() {
   return (
     <Layout title="Обмен — маркетплейс подарков">
       <div className="max-w-2xl mx-auto p-4 sm:p-6">
-
         {/* Бета-модалка */}
         {showBeta && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
             <div className="w-[92%] max-w-md rounded-2xl bg-white p-5 shadow-xl">
               <div className="text-lg font-semibold">Магазин в бете</div>
               <p className="mt-2 text-sm text-slate-600">
-                Это ранняя версия витрины коллекционных подарков. Возможны баги и задержки.
+                Это ранняя версия витрины коллекционных подарков. Возможны баги и
+                задержки.
               </p>
               <div className="mt-4 flex justify-end">
-                <button onClick={closeBeta} className="h-10 px-4 rounded-xl bg-blue-600 text-white">
+                <button
+                  onClick={closeBeta}
+                  className="h-10 px-4 rounded-xl bg-blue-600 text-white"
+                >
                   Окей
                 </button>
               </div>
@@ -94,12 +123,13 @@ export default function Obmen() {
           </div>
         )}
 
-        {/* Состояния */}
         {error && <div className="text-red-600">{error}</div>}
 
         {loading ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-            {Array.from({ length: 6 }).map((_, i) => <CardSkeleton key={i} />)}
+            {Array.from({ length: 6 }).map((_, i) => (
+              <CardSkeleton key={i} />
+            ))}
           </div>
         ) : items.length === 0 ? (
           <div className="text-center text-slate-500 py-16">
@@ -115,9 +145,7 @@ export default function Obmen() {
                 className="group rounded-3xl bg-gradient-to-b from-white to-slate-50 ring-1 ring-slate-200 p-3 text-left shadow-sm hover:shadow transition"
               >
                 <div className="aspect-square rounded-2xl bg-slate-50 overflow-hidden flex items-center justify-center relative">
-                  {/* красивый фон со свечением */}
                   <div className="absolute inset-0 pointer-events-none opacity-60 mix-blend-multiply bg-[radial-gradient(60%_60%_at_50%_40%,#93c5fd_10%,transparent_60%)]" />
-                  {/* если есть анимация — показываем видео */}
                   {g.anim_url ? (
                     <video
                       src={g.anim_url}
@@ -125,10 +153,15 @@ export default function Obmen() {
                       loop
                       muted
                       playsInline
+                      poster={g.image_url || undefined}
                       className="relative z-10 w-full h-full object-cover"
                     />
                   ) : g.image_url ? (
-                    <img src={g.image_url} alt={g.title} className="relative z-10 w-full h-full object-cover" />
+                    <img
+                      src={g.image_url}
+                      alt={g.title}
+                      className="relative z-10 w-full h-full object-cover"
+                    />
                   ) : (
                     <span className="relative z-10 text-5xl">🎁</span>
                   )}
@@ -147,15 +180,32 @@ export default function Obmen() {
 
         {/* Модалка карточки */}
         {selected && (
-          <div className="fixed inset-0 bg-black/30 flex items-end sm:items-center justify-center z-50" onClick={() => setSelected(null)}>
-            <div className="bg-white rounded-2xl w-full sm:w-[440px] p-4 m-2 shadow-xl" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="fixed inset-0 bg-black/30 flex items-end sm:items-center justify-center z-50"
+            onClick={() => setSelected(null)}
+          >
+            <div
+              className="bg-white rounded-2xl w-full sm:w-[440px] p-4 m-2 shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+            >
               <div className="flex gap-3">
                 <div className="w-28 h-28 rounded-xl bg-slate-50 overflow-hidden flex items-center justify-center relative">
                   <div className="absolute inset-0 pointer-events-none opacity-60 mix-blend-multiply bg-[radial-gradient(60%_60%_at_50%_40%,#93c5fd_10%,transparent_60%)]" />
                   {selected.anim_url ? (
-                    <video src={selected.anim_url} autoPlay loop muted playsInline className="relative z-10 w-full h-full object-cover" />
+                    <video
+                      src={selected.anim_url}
+                      autoPlay
+                      loop
+                      muted
+                      playsInline
+                      poster={selected.image_url || undefined}
+                      className="relative z-10 w-full h-full object-cover"
+                    />
                   ) : selected.image_url ? (
-                    <img src={selected.image_url} className="relative z-10 w-full h-full object-cover" />
+                    <img
+                      src={selected.image_url}
+                      className="relative z-10 w-full h-full object-cover"
+                    />
                   ) : (
                     <span className="relative z-10 text-4xl">🎁</span>
                   )}
@@ -163,7 +213,12 @@ export default function Obmen() {
                 <div className="flex-1">
                   <div className="font-semibold">{selected.title}</div>
                   <div className="text-xs text-slate-500 mb-2">
-                    <a className="underline" href={selected.tme_link} target="_blank" rel="noreferrer">
+                    <a
+                      className="underline"
+                      href={selected.tme_link}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
                       Открыть в Telegram
                     </a>
                   </div>
@@ -171,7 +226,12 @@ export default function Obmen() {
                 </div>
               </div>
               <div className="mt-4 grid grid-cols-2 gap-3">
-                <button className="h-11 rounded-xl ring-1 ring-slate-200" onClick={() => setSelected(null)}>Отмена</button>
+                <button
+                  className="h-11 rounded-xl ring-1 ring-slate-200"
+                  onClick={() => setSelected(null)}
+                >
+                  Отмена
+                </button>
                 <button
                   className="h-11 rounded-xl bg-blue-600 text-white disabled:opacity-60"
                   disabled={buying}
