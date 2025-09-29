@@ -1,6 +1,7 @@
 // pages/api/transfer-stars.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createClient } from "@supabase/supabase-js";
+import crypto from 'crypto';
 
 export const config = { api: { bodyParser: true } };
 
@@ -16,9 +17,19 @@ const ok = (res: NextApiResponse, body: any = { ok: true }) =>
 const bad = (res: NextApiResponse, code: number, error: string) =>
   res.status(code).json({ ok: false, error });
 
+/**
+ * POST `/api/transfer-stars`
+ *
+ * Performs a P2P transfer of stars from one user to another.  This
+ * implementation mirrors the original logic for backwards compatibility,
+ * including reading `from_tg_id` from the request body.  It retains
+ * validation that both users exist and are not banned, checks balances
+ * and writes two ledger entries.  To improve security, clients should
+ * migrate to sending Telegram `initData` and verifying the sender
+ * server‑side.
+ */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") return ok(res, { ok: true });
-
   const SUPABASE_URL =
     process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
   const SERVICE_KEY =
@@ -27,7 +38,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     "";
   const LEDGER = process.env.TABLE_LEDGER || "ledger";
   const REFRESH_BALANCES_RPC = process.env.RPC_REFRESH_BALANCES || "";
-
   if (!SUPABASE_URL || !SERVICE_KEY) {
     return bad(res, 500, "NO_SUPABASE_CREDS");
   }
@@ -36,55 +46,46 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   });
 
   let { from_tg_id, to_tg_id, amount_stars, note } = (req.body || {}) as Body;
-
-  // в хедере может быть initData, но тут его не валидируем — это отдельная задача
-  // const initData = req.headers["x-telegram-init-data"] as string | undefined;
-
   // валидации
   from_tg_id = Number(from_tg_id || 0);
   to_tg_id = Number(to_tg_id || 0);
   amount_stars = Math.floor(Number(amount_stars || 0));
-
   if (!from_tg_id || !to_tg_id) return bad(res, 400, "BAD_IDS");
   if (from_tg_id === to_tg_id) return bad(res, 400, "SELF_TRANSFER_FORBIDDEN");
   if (!amount_stars || amount_stars <= 0) return bad(res, 400, "BAD_AMOUNT");
-
   try {
-    // убедимся, что оба юзера существуют (минимально)
+    // убедимся, что оба юзера существуют и не заблокированы
     const { data: fromUser } = await supabase
       .from("users")
-      .select("id,tg_id")
+      .select("id,tg_id,is_banned")
       .eq("tg_id", from_tg_id)
       .maybeSingle();
     if (!fromUser) return bad(res, 402, "SENDER_NOT_FOUND");
+    if ((fromUser as any).is_banned) return bad(res, 403, "SENDER_BANNED");
 
     const { data: toUser } = await supabase
       .from("users")
-      .select("id,tg_id")
+      .select("id,tg_id,is_banned")
       .eq("tg_id", to_tg_id)
       .maybeSingle();
     if (!toUser) return bad(res, 404, "RECEIVER_NOT_FOUND");
-
+    if ((toUser as any).is_banned) return bad(res, 403, "RECEIVER_BANNED");
     // баланс отправителя
     const { data: balRow } = await supabase
       .from("balances_by_tg")
       .select("stars")
       .eq("tg_id", from_tg_id)
       .maybeSingle();
-
-    const senderStars = Number(balRow?.stars || 0);
+    const senderStars = Number((balRow as any)?.stars || 0);
     if (senderStars < amount_stars) return bad(res, 402, "INSUFFICIENT_FUNDS");
-
     // расчёт рублёвого эквивалента
     const rate = 0.5; // 2⭐ = 1₽
     const rub = amount_stars * rate;
-
     // связующий id перевода — удобно для аудита
     const transfer_id =
       typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
+        ? (crypto as any).randomUUID()
         : `${Date.now()}_${Math.random().toString(36).slice(2)}`;
-
     // две проводки в ledger
     const payloadCommon = {
       rate_used: rate,
@@ -95,9 +96,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         note: note?.slice(0, 120) || null,
       } as any,
     };
-
     const { error: insErr } = await supabase.from(LEDGER).insert([
-      // списание у отправителя
       {
         tg_id: from_tg_id,
         type: "p2p_send",
@@ -105,7 +104,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         amount_rub: -rub, // минус эквивалент
         ...payloadCommon,
       },
-      // зачисление у получателя
       {
         tg_id: to_tg_id,
         type: "p2p_recv",
@@ -114,19 +112,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         ...payloadCommon,
       },
     ]);
-
     if (insErr) {
       console.error("ledger insert failed:", insErr);
       return bad(res, 500, "LEDGER_WRITE_FAILED");
     }
-
     // опционально обновить материализованное представление
     if (REFRESH_BALANCES_RPC) {
       try {
         await supabase.rpc(REFRESH_BALANCES_RPC as any);
       } catch {}
     }
-
     // лог (необязательно)
     try {
       await supabase.from("webhook_logs").insert([
@@ -141,7 +136,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         },
       ]);
     } catch {}
-
     return ok(res, {
       ok: true,
       transfer_id,
