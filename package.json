@@ -1,0 +1,16 @@
+{
+  "name": "telegram-wallet-root",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    "client"
+  ],
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.3",
+    "html2canvas": "^1.4.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "@types/node": "^20.10.5"
+  }
+}

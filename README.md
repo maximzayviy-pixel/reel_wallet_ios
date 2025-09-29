@@ -1,83 +1,39 @@
-<h1 align="center">🎬 Reel Wallet</h1>
+# Gifts Marketplace (Stars)
 
-<p align="center">
-  <img src="https://i.imgur.com/H643dyI.jpeg" alt="Reel Wallet Logo" width="120" style="border-radius:50%;box-shadow:0 4px 12px rgba(0,0,0,0.25);" />
-  &nbsp;&nbsp;
-  <img src="https://upload.wikimedia.org/wikipedia/commons/8/83/Telegram_2019_Logo.svg" alt="Telegram Logo" width="80" />
-  &nbsp;&nbsp;
-  <img src="https://upload.wikimedia.org/wikipedia/ru/c/c7/%D0%A1%D0%91%D0%9F_%D0%BB%D0%BE%D0%B3%D0%BE%D1%82%D0%B8%D0%BF.svg" alt="СБП" width="90" />
-</p>
+Витрина подарков за ⭐ внутри страницы **/browser** + API.
 
-<p align="center">
-  <b style="font-size: 1.2em;">Быстрый и удобный кошелёк для Stars, рублей и TON <br/> с переводами через СБП и Telegram</b>
-</p>
+## Установка
 
----
+1. Залей файлы в корень `client/` (Next.js Pages Router).
+2. Применить SQL в Supabase (таблицы + RLS):
+   ```sql
+   -- см. sql/schema.sql
+   ```
+3. Переменные окружения (Vercel → Project Settings → Env):
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - `SUPABASE_URL`
+   - `SUPABASE_SERVICE_KEY`
+   - `TELEGRAM_BOT_TOKEN`
+   - `BOT_USERNAME` (например, `reelwallet_bot`)
+   - `INVOICE_SECRET` (любой секрет)
+   - `TELEGRAM_ADMIN_CHAT` (chat_id админа, опционально)
 
-## 🚀 Основные возможности  
+## Маршруты API
 
-- ⭐ **Обмен Stars (звёзды Telegram) на рубли**  
-- 💸 **Мгновенные выплаты по СБП**  
-- 🌐 **Поддержка TON** — пополнение и оплата  
-- 👥 **Переводы между пользователями внутри кошелька**  
+- `GET /api/gifts-list` — активные листинги.
+- `POST /api/gifts-create-listing` — создать листинг (status=`pending`). Body: `{ title, price_stars, quantity, media_url?, seller_tg_id }`.
+- `POST /api/gifts-admin-activate` — активировать листинг (модерация). Header: `Authorization: Bearer ${INVOICE_SECRET}`. Body: `{ listing_id }`.
+- `POST /api/gifts-buy` — создаёт order и выдаёт `invoice_link` Stars.
+- `POST /api/gifts-payment-webhook` — помечает заказ оплаченным, уменьшает остаток, начисляет продавцу в `ledger`. Header: `x-invoice-secret: ${INVOICE_SECRET}`. Body: `{ order_id }`.
 
----
+### Интеграция оплаты Stars
 
-## 🎨 Интерфейс  
+Мы используем `createInvoiceLink` с `currency: "XTR"`. После оплаты ты можешь:
+- Либо вызывать `POST /api/gifts-payment-webhook` из своего основного Telegram webhook, когда получаешь `successful_payment` (передаёшь `order_id` из payload).
+- Либо вручную дернуть `gifts-payment-webhook` для теста.
 
-Reel Wallet сочетает в себе минимализм и удобство:  
-- плавные градиенты (фиолетовый → синий → бирюзовый);  
-- чистая типографика;  
-- операции в пару кликов.  
+## UI
 
----
+Страница `/browser` показывает сетку активных подарков и форму выставления своих подарков. Покупка открывает инвойс в Mini App.
 
-## ⚡ Как это работает  
-
-1. Пополняете кошелёк Stars или TON.  
-2. Обмениваете Stars на рубли.  
-3. Получаете деньги на карту через **СБП**.  
-4. Делаете переводы друзьям или оплачиваете сервисы в TON.  
-
----
-
-## 🔐 Безопасность  
-
-- 🔒 Шифрование и защищённые протоколы  
-- ✅ Авторизация через Telegram  
-- ⚡ Быстрая обработка транзакций  
-
----
-
-## 🛠️ Установка и запуск  
-
-```bash
-# Клонируем репозиторий
-git clone https://github.com/yourusername/reel-wallet.git
-
-# Переходим в папку проекта
-cd reel-wallet
-
-# Устанавливаем зависимости
-npm install
-
-# Запускаем проект
-npm run start
-```
-
----
-
-## 🏷️ Badges  
-
-<p align="center">
-  <img src="https://img.shields.io/github/last-commit/yourusername/reel-wallet?color=blueviolet&style=for-the-badge" />
-  <img src="https://img.shields.io/github/issues/yourusername/reel-wallet?color=brightgreen&style=for-the-badge" />
-  <img src="https://img.shields.io/github/license/yourusername/reel-wallet?color=orange&style=for-the-badge" />
-  <img src="https://img.shields.io/github/actions/workflow/status/yourusername/reel-wallet/node.js.yml?style=for-the-badge" />
-</p>
-
----
-
-## 📄 Лицензия  
-
-Проект распространяется под лицензией **MIT**.  
