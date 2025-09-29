@@ -30,7 +30,7 @@ export default function Browser() {
     setBuying(true);
     try {
       const r = await fetch('/api/gifts/buy', {
-        method: 'POST', headers: {'Content-Type':'application/json'},
+        method: 'POST', headers: {'Content-Type':'application/json', 'x-init-data': (window as any)?.Telegram?.WebApp?.initData || '' } ,
         body: JSON.stringify({ gift_id: gift.id })
       });
       const j = await r.json();

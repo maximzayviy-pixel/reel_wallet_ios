@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createClient } from "@supabase/supabase-js";
-import { validateTelegramInitData, parseTelegramUser } from "../../lib/validateTelegram";
+import { validateTelegramInitData, parseTelegramUser } from "../../../lib/validateTelegram";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") return res.status(405).end();
