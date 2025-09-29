@@ -2,7 +2,82 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createClient } from "@supabase/supabase-js";
 import { requireAdmin } from "./_guard";
-import handlerSingle from "./gift-refresh";
+
+function take(html: string, re: RegExp) {
+  const m = html.match(re);
+  return m ? m[1].trim() : "";
+}
+function toNumber(s?: string | null) {
+  if (!s) return null;
+  const norm = s.replace(/\u00A0|\s/g, "").replace(",", ".");
+  const n = Number(norm);
+  return Number.isFinite(n) ? n : null;
+}
+
+async function fetchGiftPreview(link: string) {
+  const r = await fetch(link, {
+    redirect: "follow",
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+    },
+  });
+  const html = await r.text();
+
+  const image =
+    take(html, /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
+    take(html, /<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i);
+
+  const video =
+    take(html, /<meta[^>]+property=["']og:video["'][^>]+content=["']([^"']+)["']/i) ||
+    take(html, /<meta[^>]+property=["']og:video:url["'][^>]+content=["']([^"']+)["']/i) ||
+    take(html, /<video[^>]+src=["']([^"']+)["']/i) ||
+    take(html, /<source[^>]+src=["']([^"']+)["'][^>]*>/i);
+
+  const tgs =
+    take(html, /<source[^>]+type=["']application\/x-tgsticker["'][^>]+srcset=["']([^"']+)["']/i) ||
+    take(html, /<source[^>]+type=["']application\/x-tgsticker["'][^>]+src=["']([^"']+)["']/i);
+
+  const valueRaw =
+    take(html, /Ценность[^~]*~\s*([\d\s.,]+)\s*RUB/i) ||
+    take(html, /Value[^~]*~\s*([\d\s.,]+)\s*RUB/i);
+  const value_rub = toNumber(valueRaw);
+
+  const model =
+    take(html, /tgme_gift_stats_name[^>]*>\s*Модель\s*<\/div>\s*<div[^>]*tgme_gift_stats_value[^>]*>([^<]+)/i) ||
+    take(html, /tgme_gift_stats_name[^>]*>\s*Model\s*<\/div>\s*<div[^>]*tgme_gift_stats_value[^>]*>([^<]+)/i);
+
+  const backdrop =
+    take(html, /tgme_gift_stats_name[^>]*>\s*Фон\s*<\/div>\s*<div[^>]*tgme_gift_stats_value[^>]*>([^<]+)/i) ||
+    take(html, /tgme_gift_stats_name[^>]*>\s*(Background|Backdrop)\s*<\/div>\s*<div[^>]*tgme_gift_stats_value[^>]*>([^<]+)/i);
+
+  const pattern =
+    take(html, /tgme_gift_stats_name[^>]*>\s*Узор\s*<\/div>\s*<div[^>]*tgme_gift_stats_value[^>]*>([^<]+)/i) ||
+    take(html, /tgme_gift_stats_name[^>]*>\s*Pattern\s*<\/div>\s*<div[^>]*tgme_gift_stats_value[^>]*>([^<]+)/i);
+
+  const amountTotalRaw =
+    take(html, /Количество[^<]*<\/div>\s*<div[^>]*tgme_gift_stats_value[^>]*>\s*([\d\s.,]+)/i) ||
+    take(html, /Amount[^<]*<\/div>\s*<div[^>]*tgme_gift_stats_value[^>]*>\s*([\d\s.,]+)/i);
+  const amountIssuedRaw =
+    take(html, /выпущено\s*([\d\s.,]+)/i) || take(html, /issued\s*([\d\s.,]+)/i);
+
+  const amount_total = toNumber(amountTotalRaw);
+  const amount_issued = toNumber(amountIssuedRaw);
+
+  return {
+    image_url: image || null,
+    anim_url: video || null,
+    tgs_url: tgs || null,
+    value_rub,
+    model: model || null,
+    backdrop: backdrop || null,
+    pattern: pattern || null,
+    amount_total,
+    amount_issued,
+  };
+}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const admin = await requireAdmin(req, res);
@@ -12,7 +87,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
   const { data: gifts, error } = await supabase
     .from("gifts")
-    .select("id,tgs_url,image_url,anim_url")
+    .select("id,tme_link")
     .order("id", { ascending: true });
 
   if (error) return res.status(500).json({ ok: false, error: error.message });
@@ -20,22 +95,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const updated: Array<{ id: number; ok: boolean; error?: string }> = [];
 
   for (const g of gifts || []) {
-    if (g.tgs_url && g.image_url) continue; // уже ок
     try {
-      // переиспользуем одиночный обработчик
-      const r = await fetch(process.env.NEXT_PUBLIC_BASE_URL
-          ? `${process.env.NEXT_PUBLIC_BASE_URL}/api/admin/gift-refresh`
-          : `${req.headers.origin}/api/admin/gift-refresh`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-admin-key": (process.env.ADMIN_HTTP_KEY || "") },
-        body: JSON.stringify({ id: g.id })
-      });
-      const j = await r.json();
-      updated.push({ id: g.id, ok: !!j.ok, error: j.error });
-      await new Promise(r => setTimeout(r, 200));
+      const parsed = await fetchGiftPreview(g.tme_link);
+      const { error: uErr } = await supabase.from("gifts").update(parsed).eq("id", g.id);
+      updated.push({ id: g.id, ok: !uErr, error: uErr?.message });
     } catch (e: any) {
-      updated.push({ id: g.id, ok: false, error: e?.message || "fetch_failed" });
+      updated.push({ id: g.id, ok: false, error: e?.message || "parse_failed" });
     }
+    // маленькая пауза, чтобы не спамить CDN
+    await new Promise((r) => setTimeout(r, 150));
   }
 
   res.json({ ok: true, updated });
