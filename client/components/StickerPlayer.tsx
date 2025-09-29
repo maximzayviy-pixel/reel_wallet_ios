@@ -1,7 +1,6 @@
-// components/StickerPlayer.tsx — проигрыватель Telegram .tgs (Lottie) с фолбэком на постер
-import { useEffect, useRef } from "react";
+// components/StickerPlayer.tsx
+import { useEffect, useRef, useState } from "react";
 import lottie, { AnimationItem } from "lottie-web";
-import { inflate } from "pako";
 
 type Props = {
   tgsUrl?: string | null;
@@ -10,31 +9,38 @@ type Props = {
 };
 
 export default function StickerPlayer({ tgsUrl, poster, className }: Props) {
-  const ref = useRef<HTMLDivElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const animRef = useRef<AnimationItem | null>(null);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    if (!tgsUrl || !ref.current) return;
+    setLoaded(false);
+    animRef.current?.destroy();
+    animRef.current = null;
+
+    if (!tgsUrl || !wrapRef.current) return;
 
     (async () => {
       try {
-        const resp = await fetch(tgsUrl, { cache: "force-cache" });
-        const buf = await resp.arrayBuffer();
-        // tgs — это gzipped JSON
-        const json = JSON.parse(new TextDecoder().decode(inflate(new Uint8Array(buf))));
-        if (cancelled || !ref.current) return;
-        animRef.current?.destroy();
+        const proxied = `/api/gifts/tgs?u=${encodeURIComponent(tgsUrl)}`;
+        const resp = await fetch(proxied, { cache: "force-cache" });
+        if (!resp.ok) throw new Error("tgs fetch failed");
+        const data = await resp.json();
+
+        if (cancelled || !wrapRef.current) return;
         animRef.current = lottie.loadAnimation({
-          container: ref.current,
+          container: wrapRef.current,
           renderer: "svg",
           loop: true,
           autoplay: true,
-          animationData: json,
+          animationData: data,
         });
+        animRef.current.addEventListener("DOMLoaded", () => !cancelled && setLoaded(true));
+        animRef.current.addEventListener("data_failed", () => !cancelled && setLoaded(false));
       } catch (e) {
-        // молча падаем — ниже отрисуется постер
-        console.warn("tgs load failed", e);
+        console.warn("TGS load error:", e);
+        if (!cancelled) setLoaded(false);
       }
     })();
 
@@ -46,18 +52,18 @@ export default function StickerPlayer({ tgsUrl, poster, className }: Props) {
   }, [tgsUrl]);
 
   return (
-    <div className={className}>
-      {/* Канва/контейнер для анимации */}
-      <div ref={ref} className="w-full h-full" />
-      {/* Фолбэк-постер (покажется, если tgs не загрузился) */}
-      {poster ? (
+    <div className={`relative ${className || ""}`}>
+      {/* Постер под анимацией — виден, пока loaded=false */}
+      {poster && (
         <img
           src={poster}
           alt=""
-          className="w-full h-full object-cover absolute inset-0 pointer-events-none select-none"
-          style={{ visibility: tgsUrl ? "hidden" : "visible" }}
+          className="absolute inset-0 w-full h-full object-cover rounded-2xl"
+          style={{ opacity: loaded ? 0 : 1, transition: "opacity .25s" }}
         />
-      ) : null}
+      )}
+      {/* Контейнер под lottie */}
+      <div ref={wrapRef} className="absolute inset-0 w-full h-full" />
     </div>
   );
 }
