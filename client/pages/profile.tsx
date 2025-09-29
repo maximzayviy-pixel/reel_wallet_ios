@@ -1,9 +1,11 @@
 // pages/profile.tsx
-// Профиль со "мягким" KYC и выводом ⭐ по СБП.
-// ✅ Фикс перекрытия нижнего навбара (большой отступ снизу)
-// ✅ Кнопка вывода корректно меняет состояния (disabled/active)
-// ✅ Uploadcare ссылки нормализованы к https://ucarecdn.com/<uuid>/
-// ✅ Камера: фото лица, фото документа; видео «живости» (webm)
+// Профиль с "мягким" KYC (шаги) + вывод ⭐ по СБП.
+// ✅ KYC встроен в профиль
+// ✅ Одна камера за раз (без конфликтов)
+// ✅ Лицо в круглом превью
+// ✅ Uploadcare ссылки: https://ucarecdn.com/<uuid>/
+// ✅ Поиск банков с мини-лого
+// ✅ Отступ под нижний навбар
 
 "use client";
 
@@ -13,166 +15,7 @@ import Layout from "../components/Layout";
 import Skeleton from "../components/Skeleton";
 import { createClient } from "@supabase/supabase-js";
 
-// ====== Мини-компоненты камеры прямо в файле (чтобы не создавать новые файлы) ======
-function CameraShot({
-  label,
-  onCapture,
-  facingMode = "user",
-  width = 360,
-  height = 480,
-}: {
-  label: string;
-  onCapture: (dataUrl: string) => void;
-  facingMode?: "user" | "environment";
-  width?: number;
-  height?: number;
-}) {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-  const [ready, setReady] = useState(false);
-
-  useEffect(() => {
-    let stream: MediaStream | null = null;
-    (async () => {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode },
-          audio: false,
-        });
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play();
-          setReady(true);
-        }
-      } catch (e: any) {
-        setErr(e?.message || "Не удалось открыть камеру");
-      }
-    })();
-    return () => {
-      stream?.getTracks().forEach((t) => t.stop());
-    };
-  }, [facingMode]);
-
-  const snap = () => {
-    const v = videoRef.current;
-    const c = canvasRef.current;
-    if (!v || !c) return;
-    c.width = width;
-    c.height = height;
-    const ctx = c.getContext("2d");
-    if (!ctx) return;
-    ctx.drawImage(v, 0, 0, width, height);
-    const dataUrl = c.toDataURL("image/jpeg", 0.92);
-    onCapture(dataUrl);
-  };
-
-  return (
-    <div className="space-y-2">
-      <div className="text-sm">{label}</div>
-      <video ref={videoRef} playsInline muted className="rounded-xl w-full bg-black/5" />
-      <div className="flex items-center gap-2">
-        <button
-          onClick={snap}
-          disabled={!ready}
-          className="px-3 py-2 rounded-lg bg-indigo-600 text-white disabled:bg-slate-300"
-        >
-          Сфотографировать
-        </button>
-        {err && <div className="text-xs text-rose-600">{err}</div>}
-      </div>
-      <canvas ref={canvasRef} className="hidden" />
-    </div>
-  );
-}
-
-function LivenessRecorder({
-  onRecorded,
-  maxMs = 5000,
-}: {
-  onRecorded: (blob: Blob) => void;
-  maxMs?: number;
-}) {
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const [rec, setRec] = useState<MediaRecorder | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-  const [count, setCount] = useState<number>(0);
-  const chunks = useRef<BlobPart[]>([]);
-
-  useEffect(() => {
-    let stream: MediaStream | null = null;
-    (async () => {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "user" },
-          audio: false,
-        });
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play();
-        }
-      } catch (e: any) {
-        setErr(e?.message || "Нет доступа к камере");
-      }
-    })();
-    return () => {
-      stream?.getTracks().forEach((t) => t.stop());
-    };
-  }, []);
-
-  const start = () => {
-    const stream = videoRef.current?.srcObject as MediaStream | null;
-    if (!stream) return;
-    chunks.current = [];
-    const mr = new MediaRecorder(stream, { mimeType: "video/webm;codecs=vp8" });
-    mr.ondataavailable = (e) => e.data && chunks.current.push(e.data);
-    mr.onstop = () => {
-      const blob = new Blob(chunks.current, { type: "video/webm" });
-      onRecorded(blob);
-    };
-    mr.start(250);
-    setRec(mr);
-    setCount(Math.ceil(maxMs / 1000));
-    const timer = setInterval(() => {
-      setCount((c) => {
-        if (c <= 1) {
-          clearInterval(timer);
-          mr.stop();
-          return 0;
-        }
-        return c - 1;
-      });
-    }, 1000);
-  };
-
-  const stop = () => rec?.state === "recording" && rec.stop();
-
-  return (
-    <div className="space-y-2">
-      <div className="text-sm">Проверка «живости»: поверни голову влево-вправо</div>
-      <video ref={videoRef} playsInline muted className="rounded-xl w-full bg-black/5" />
-      <div className="flex items-center gap-2">
-        <button
-          onClick={start}
-          disabled={!!rec && rec.state === "recording"}
-          className="px-3 py-2 bg-indigo-600 text-white rounded-lg disabled:bg-slate-300"
-        >
-          Записать {count ? `(${count})` : ""}
-        </button>
-        <button
-          onClick={stop}
-          disabled={!rec || rec.state !== "recording"}
-          className="px-3 py-2 bg-slate-200 rounded-lg"
-        >
-          Стоп
-        </button>
-        {err && <div className="text-xs text-rose-600">{err}</div>}
-      </div>
-    </div>
-  );
-}
-
-// ====== Uploadcare helpers (жёстко нормализуем на ucarecdn.com/<UUID>/) ======
+// -------- Uploadcare helpers --------
 function dataUrlToBlob(dataUrl: string): Blob {
   const [header, base64] = dataUrl.split(",");
   const type = /data:(.*?);/.exec(header)?.[1] || "image/jpeg";
@@ -191,14 +34,13 @@ async function uploadcarePut(file: Blob, filename = "file.bin"): Promise<string>
   const r = await fetch("https://upload.uploadcare.com/base/", { method: "POST", body: form });
   const j = await r.json();
   if (!r.ok || !j?.file) throw new Error(j?.error || "Uploadcare error");
-  // ❗️Нормализуем финальную ссылку: всегда ucarecdn.com/<uuid>/
   return `https://ucarecdn.com/${j.file}/`;
 }
 async function uploadcarePutDataUrl(dataUrl: string): Promise<string> {
   return uploadcarePut(dataUrlToBlob(dataUrl), "image.jpg");
 }
 
-// ====== Supabase клиент + Telegram MiniApp ======
+// -------- Supabase + TG types --------
 type TGUser = {
   id: number;
   username?: string;
@@ -215,7 +57,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-// Фолбек банки (если /api/sbp-banks недоступен)
+// -------- SBP banks --------
 type Bank = { name: string; logo: string };
 const BANKS_FALLBACK: Bank[] = [
   { name: "Сбербанк", logo: "https://upload.wikimedia.org/wikipedia/commons/1/16/Sberbank_Logo_2020_Russian.svg" },
@@ -224,24 +66,105 @@ const BANKS_FALLBACK: Bank[] = [
   { name: "Альфа-Банк", logo: "https://upload.wikimedia.org/wikipedia/commons/6/60/Logo_Alfa-Bank.svg" },
 ];
 
+// -------- Единый контроллер камеры --------
+function useSingleCamera() {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  const start = async (facingMode: "user" | "environment", withAudio = false) => {
+    await stop();
+    const s = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode },
+      audio: withAudio ? true : false,
+    });
+    streamRef.current = s;
+    if (videoRef.current) {
+      videoRef.current.srcObject = s;
+      await videoRef.current.play();
+    }
+  };
+
+  const stop = async () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+  };
+
+  const snap = (w = 360, h = 480): string | null => {
+    const v = videoRef.current;
+    if (!v) return null;
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(v, 0, 0, w, h);
+    return canvas.toDataURL("image/jpeg", 0.92);
+  };
+
+  return { videoRef, start, stop, snap };
+}
+
+// -------- Виджет записи живости (использует текущий videoRef) --------
+function useLivenessRecorder(videoRef: React.RefObject<HTMLVideoElement>) {
+  const recRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<BlobPart[]>([]);
+  const [count, setCount] = useState(0);
+  const [recording, setRecording] = useState(false);
+
+  const start = (ms = 5000) => {
+    const stream = videoRef.current?.srcObject as MediaStream | null;
+    if (!stream) return;
+    chunksRef.current = [];
+    const mr = new MediaRecorder(stream, { mimeType: "video/webm;codecs=vp8" });
+    mr.ondataavailable = (e) => e.data && chunksRef.current.push(e.data);
+    recRef.current = mr;
+    mr.start(250);
+    setRecording(true);
+    setCount(Math.ceil(ms / 1000));
+    const timer = setInterval(() => {
+      setCount((c) => {
+        if (c <= 1) {
+          clearInterval(timer);
+          stop();
+          return 0;
+        }
+        return c - 1;
+      });
+    }, 1000);
+  };
+
+  const stop = () => {
+    if (recRef.current && recRef.current.state === "recording") {
+      recRef.current.stop();
+      setRecording(false);
+    }
+  };
+
+  const takeBlob = (): Blob | null => {
+    if (!chunksRef.current.length) return null;
+    return new Blob(chunksRef.current, { type: "video/webm" });
+  };
+
+  return { start, stop, takeBlob, count, recording };
+}
+
+// -------- Страница --------
 export default function Profile() {
   const [u, setU] = useState<TGUser | null>(null);
   const [isVerified, setIsVerified] = useState<boolean>(false);
   const [role, setRole] = useState<string>("user");
 
-  // ===== Промокод
+  // промокод
   const [code, setCode] = useState("");
   const [promoState, setPromoState] = useState<null | { ok: boolean; msg: string }>(null);
   const disabledRedeem = useMemo(() => !code.trim() || !u?.id, [code, u?.id]);
 
-  // ===== KYC
-  const [face, setFace] = useState<string | null>(null);
-  const [doc, setDoc] = useState<string | null>(null);
-  const [liveBlob, setLiveBlob] = useState<Blob | null>(null);
-  const [kycSending, setKycSending] = useState(false);
-  const [kycMsg, setKycMsg] = useState<string | null>(null);
-
-  // ===== Вывод
+  // вывод
   const [amount, setAmount] = useState<number>(0);
   const [account, setAccount] = useState<string>("");
   const [banks, setBanks] = useState<Bank[]>([]);
@@ -250,7 +173,20 @@ export default function Profile() {
   const [wdSending, setWdSending] = useState(false);
   const [wdMsg, setWdMsg] = useState<string | null>(null);
 
-  // ===== Инициализация из Telegram + статусы
+  // KYC (шаги)
+  // 1 — лицо, 2 — документ, 3 — живость, 4 — отправка
+  const [kycStep, setKycStep] = useState<1 | 2 | 3 | 4>(1);
+  const [face, setFace] = useState<string | null>(null);
+  const [doc, setDoc] = useState<string | null>(null);
+  const [liveBlob, setLiveBlob] = useState<Blob | null>(null);
+  const [kycSending, setKycSending] = useState(false);
+  const [kycMsg, setKycMsg] = useState<string | null>(null);
+
+  // единая камера
+  const cam = useSingleCamera();
+  const live = useLivenessRecorder(cam.videoRef);
+
+  // init TG + статус + роль
   useEffect(() => {
     let tries = 0;
     let usersChannel: ReturnType<typeof supabase.channel> | null = null;
@@ -264,7 +200,6 @@ export default function Profile() {
           clearInterval(t);
           setU(user);
 
-          // апсерт (на бэке стоит защита от смены роли — см. логи)
           fetch("/api/auth-upsert", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -276,7 +211,6 @@ export default function Profile() {
             }),
           }).catch(() => {});
 
-          // верификация
           fetch("/api/verify-status", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -286,7 +220,6 @@ export default function Profile() {
             .then((j) => setIsVerified(!!j?.verified))
             .catch(() => {});
 
-          // роль
           supabase
             .from("users")
             .select("role")
@@ -314,7 +247,7 @@ export default function Profile() {
     };
   }, []);
 
-  // ===== Банки СБП
+  // банки
   useEffect(() => {
     (async () => {
       try {
@@ -328,41 +261,70 @@ export default function Profile() {
     })();
   }, []);
 
-  const redeem = async () => {
-    if (!u?.id || !code.trim()) return;
-    setPromoState(null);
-    try {
-      const r = await fetch("/api/redeem-promocode", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tg_id: u.id, code: code.trim() }),
-      });
-      const j = await r.json();
-      if (!j?.ok) {
-        setPromoState({ ok: false, msg: j?.error || "Промокод не принят" });
-      } else {
-        const bonus = j.bonus ?? j.amount ?? "";
-        const cur = j.currency ?? (j.isStars ? "⭐" : "₽");
-        setPromoState({ ok: true, msg: `Зачислено: ${bonus} ${cur}` });
-        setCode("");
+  // управление шагами камеры (включаем нужную камеру и выключаем прошлую)
+  useEffect(() => {
+    (async () => {
+      try {
+        if (kycStep === 1) {
+          await cam.start("user", false);
+        } else if (kycStep === 2) {
+          await cam.start("environment", false);
+        } else if (kycStep === 3) {
+          await cam.start("user", false);
+        } else {
+          await cam.stop();
+        }
+      } catch (e) {
+        // игнорим, пользователь может не выдать доступ
       }
-    } catch {
-      setPromoState({ ok: false, msg: "Ошибка сети" });
+    })();
+    return () => {
+      // при размонтировании или смене шага потоки стартаются в start/stop
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kycStep]);
+
+  const captureFace = () => {
+    const shot = cam.snap(480, 480);
+    if (shot) {
+      setFace(shot);
+      setKycStep(2);
     }
   };
 
+  const captureDoc = () => {
+    const shot = cam.snap(720, 480);
+    if (shot) {
+      setDoc(shot);
+      setKycStep(3);
+    }
+  };
+
+  const recordLive = async () => {
+    // короткая запись и при завершении кладём blob
+    live.start(5000);
+  };
+  useEffect(() => {
+    // забираем blob после остановки
+    if (!live.recording) {
+      const b = live.takeBlob();
+      if (b && b.size > 0) {
+        setLiveBlob(b);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live.recording]);
+
   const submitKYC = async () => {
     if (!u?.id) return setKycMsg("Не определён Telegram-профиль.");
-    if (!face || !doc) return setKycMsg("Сделай фото лица и документа.");
+    if (!face || !doc) return setKycMsg("Нужны фото лица и документа.");
     setKycSending(true);
     setKycMsg(null);
     try {
       const face_url = await uploadcarePutDataUrl(face);
       const doc_url = await uploadcarePutDataUrl(doc);
       let liveness_url: string | undefined;
-      if (liveBlob) {
-        liveness_url = await uploadcarePut(liveBlob, "liveness.webm");
-      }
+      if (liveBlob) liveness_url = await uploadcarePut(liveBlob, "liveness.webm");
 
       const r = await fetch(`/api/kyc-submit?tg_id=${u.id}`, {
         method: "POST",
@@ -372,6 +334,7 @@ export default function Profile() {
       const j = await r.json();
       if (!j?.ok) throw new Error(j?.error || "Не удалось отправить заявку");
       setKycMsg("Заявка отправлена. Проверим в ближайшее время.");
+      setKycStep(4);
       setFace(null);
       setDoc(null);
       setLiveBlob(null);
@@ -382,9 +345,12 @@ export default function Profile() {
     }
   };
 
+  const banksFiltered = banks.filter((b) =>
+    !bankQuery || b.name.toLowerCase().includes(bankQuery.toLowerCase())
+  );
+
   const canWithdraw = useMemo(() => {
-    if (!isVerified) return false;
-    if (!u?.id) return false;
+    if (!isVerified || !u?.id) return false;
     if (!bank || !account.trim()) return false;
     if (!Number.isFinite(amount) || amount <= 0) return false;
     return true;
@@ -412,9 +378,28 @@ export default function Profile() {
     }
   };
 
-  const banksFiltered = banks.filter((b) =>
-    !bankQuery || b.name.toLowerCase().includes(bankQuery.toLowerCase())
-  );
+  const redeem = async () => {
+    if (!u?.id || !code.trim()) return;
+    setPromoState(null);
+    try {
+      const r = await fetch("/api/redeem-promocode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tg_id: u.id, code: code.trim() }),
+      });
+      const j = await r.json();
+      if (!j?.ok) {
+        setPromoState({ ok: false, msg: j?.error || "Промокод не принят" });
+      } else {
+        const bonus = j.bonus ?? j.amount ?? "";
+        const cur = j.currency ?? (j.isStars ? "⭐" : "₽");
+        setPromoState({ ok: true, msg: `Зачислено: ${bonus} ${cur}` });
+        setCode("");
+      }
+    } catch {
+      setPromoState({ ok: false, msg: "Ошибка сети" });
+    }
+  };
 
   return (
     <Layout title="Профиль — Reel Wallet">
@@ -465,7 +450,7 @@ export default function Profile() {
 
         {/* Content */}
         <div className="max-w-md mx-auto px-4 -mt-6 space-y-6 relative z-0 pb-28">
-          {/* Карточка профиля */}
+          {/* Профиль */}
           <div className="bg-white rounded-2xl p-4 shadow-sm">
             <div className="flex items-center justify-between mb-3">
               <div className="font-semibold">Данные профиля</div>
@@ -515,74 +500,135 @@ export default function Profile() {
                 <input
                   value={code}
                   onChange={(e) => setCode(e.target.value.toUpperCase())}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !disabledRedeem) redeem();
-                  }}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !disabledRedeem) redeem(); }}
                   placeholder="Введите код"
                   className="flex-1 rounded-xl ring-1 ring-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-slate-300"
                 />
                 <button
                   onClick={redeem}
-                    disabled={disabledRedeem}
-                    className="rounded-xl bg-slate-900 text-white text-sm px-4 py-2 disabled:opacity-60"
+                  disabled={disabledRedeem}
+                  className="rounded-xl bg-slate-900 text-white text-sm px-4 py-2 disabled:opacity-60"
                 >
                   Активировать
                 </button>
               </div>
               {promoState && (
-                <div className={`mt-2 text-xs ${promoState.ok ? "text-emerald-600" : "text-rose-600"}`}>
-                  {promoState.msg}
-                </div>
+                <div className={`mt-2 text-xs ${promoState.ok ? "text-emerald-600" : "text-rose-600"}`}>{promoState.msg}</div>
               )}
             </div>
           </div>
 
-          {/* ===== Инлайн KYC (если не верифицирован) ===== */}
+          {/* ===== KYC внутри профиля (шаги) ===== */}
           {u && !isVerified && (
             <div className="bg-white rounded-2xl p-4 shadow-sm space-y-4">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <div className="font-semibold">Верификация личности</div>
                   <p className="text-sm text-slate-600 mt-1">
-                    Сделай фото лица, документа и короткое видео с поворотом головы. Файлы попадут в Uploadcare,
-                    заявка улетит админу.
+                    Пройди три шага: 1) лицо • 2) документ • 3) короткое видео с поворотом головы.
                   </p>
                 </div>
+                <div className="text-xs px-2 py-1 rounded-full bg-slate-100 text-slate-600">
+                  Шаг {kycStep}/3
+                </div>
               </div>
 
-              <CameraShot label="Фото лица" facingMode="user" onCapture={(data) => setFace(data)} />
-              {face && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={face} alt="face" className="w-full mt-2 rounded-xl ring-1 ring-slate-200" />
-              )}
+              {/* video общая для всех шагов */}
+              <div className="w-full flex flex-col items-center">
+                {kycStep === 1 && (
+                  <div className="flex flex-col items-center">
+                    {/* круглое превью */}
+                    <div className="w-40 h-40 rounded-full overflow-hidden ring-2 ring-indigo-100 mb-3 bg-black/5">
+                      <video ref={cam.videoRef} playsInline muted className="w-full h-full object-cover" />
+                    </div>
+                    <button
+                      onClick={captureFace}
+                      className="px-4 py-2 rounded-xl bg-indigo-600 text-white"
+                    >
+                      Сфотографировать лицо
+                    </button>
+                  </div>
+                )}
 
-              <CameraShot label="Фото документа" facingMode="environment" onCapture={(data) => setDoc(data)} />
-              {doc && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={doc} alt="doc" className="w-full mt-2 rounded-xl ring-1 ring-slate-200" />
-              )}
+                {kycStep === 2 && (
+                  <div className="w-full">
+                    <div className="rounded-xl overflow-hidden ring-1 ring-slate-200 mb-3 bg-black/5">
+                      <video ref={cam.videoRef} playsInline muted className="w-full h-60 object-cover" />
+                    </div>
+                    <button
+                      onClick={captureDoc}
+                      className="px-4 py-2 rounded-xl bg-indigo-600 text-white"
+                    >
+                      Сфотографировать документ
+                    </button>
+                  </div>
+                )}
 
-              <LivenessRecorder onRecorded={(blob) => setLiveBlob(blob)} />
-              {liveBlob && (
-                <div className="text-xs text-slate-500">
-                  Видео записано ({Math.round(liveBlob.size / 1024)} КБ)
+                {kycStep === 3 && (
+                  <div className="w-full">
+                    <div className="rounded-xl overflow-hidden ring-1 ring-slate-200 mb-3 bg-black/5">
+                      <video ref={cam.videoRef} playsInline muted className="w-full h-60 object-cover" />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button onClick={recordLive} disabled={live.recording} className="px-4 py-2 rounded-xl bg-indigo-600 text-white disabled:bg-slate-300">
+                        Записать {live.count ? `(${live.count})` : ""}
+                      </button>
+                      <button onClick={live.stop} disabled={!live.recording} className="px-4 py-2 rounded-xl bg-slate-200">
+                        Стоп
+                      </button>
+                    </div>
+                    {liveBlob && <div className="text-xs text-slate-500 mt-2">Видео готово ({Math.round(liveBlob.size/1024)} КБ)</div>}
+
+                    <div className="mt-4 flex items-center gap-2">
+                      <button
+                        onClick={() => setKycStep(2)}
+                        className="px-3 py-2 rounded-xl bg-slate-100"
+                      >
+                        Назад
+                      </button>
+                      <button
+                        onClick={() => setKycStep(4)}
+                        className="px-3 py-2 rounded-xl bg-slate-900 text-white"
+                      >
+                        Продолжить
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* итоговый шаг — отправка */}
+              {kycStep === 4 && (
+                <div className="space-y-3">
+                  <div className="text-sm text-slate-700">Проверь и отправь заявку:</div>
+                  <div className="grid grid-cols-2 gap-3">
+                    {face ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={face} alt="face" className="w-full rounded-xl ring-1 ring-slate-200" />
+                    ) : <div className="h-24 rounded-xl bg-slate-100" />}
+                    {doc ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={doc} alt="doc" className="w-full rounded-xl ring-1 ring-slate-200" />
+                    ) : <div className="h-24 rounded-xl bg-slate-100" />}
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <button onClick={() => setKycStep(1)} className="px-3 py-2 rounded-xl bg-slate-100">
+                      Назад
+                    </button>
+                    <button
+                      onClick={submitKYC}
+                      disabled={kycSending || !face || !doc}
+                      className={`px-4 py-2 rounded-xl text-white ${
+                        kycSending || !face || !doc ? "bg-slate-300" : "bg-indigo-600 hover:bg-indigo-700"
+                      }`}
+                    >
+                      Отправить на проверку
+                    </button>
+                    {kycMsg && <div className="text-sm text-slate-700">{kycMsg}</div>}
+                  </div>
                 </div>
               )}
-
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={submitKYC}
-                  disabled={kycSending || !face || !doc}
-                  className={`px-4 py-2 rounded-xl text-white ${
-                    kycSending || !face || !doc ? "bg-slate-300" : "bg-indigo-600 hover:bg-indigo-700"
-                  }`}
-                >
-                  Отправить на проверку
-                </button>
-                {kycMsg && <div className="text-sm text-slate-700">{kycMsg}</div>}
-              </div>
-
-              <div className="text-xs text-slate-500">Уведомим, когда админ проверит документы.</div>
             </div>
           )}
 
@@ -619,19 +665,21 @@ export default function Profile() {
                     onChange={(e) => setBankQuery(e.target.value)}
                   />
                   <div className="grid grid-cols-3 gap-2 max-h-56 overflow-auto pr-1 mt-2">
-                    {banksFiltered.map((b) => (
-                      <button
-                        key={`${b.name}-${b.logo}`}
-                        onClick={() => setBank(b.name)}
-                        className={`flex flex-col items-center gap-1 rounded-xl ring-1 px-2 py-2 transition
-                          ${bank === b.name ? "ring-indigo-400 bg-indigo-50" : "ring-slate-200 bg-white hover:bg-slate-50"}`}
-                        title={b.name}
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={b.logo} alt={b.name} className="h-6 w-auto object-contain" />
-                        <span className="text-[10px] text-slate-600 text-center line-clamp-2">{b.name}</span>
-                      </button>
-                    ))}
+                    {banks
+                      .filter((b) => !bankQuery || b.name.toLowerCase().includes(bankQuery.toLowerCase()))
+                      .map((b) => (
+                        <button
+                          key={`${b.name}-${b.logo}`}
+                          onClick={() => setBank(b.name)}
+                          className={`flex flex-col items-center gap-1 rounded-xl ring-1 px-2 py-2 transition
+                            ${bank === b.name ? "ring-indigo-400 bg-indigo-50" : "ring-slate-200 bg-white hover:bg-slate-50"}`}
+                          title={b.name}
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={b.logo} alt={b.name} className="h-6 w-auto object-contain" />
+                          <span className="text-[10px] text-slate-600 text-center line-clamp-2">{b.name}</span>
+                        </button>
+                      ))}
                     {banksFiltered.length === 0 && (
                       <div className="col-span-3 text-xs text-slate-500">Ничего не найдено</div>
                     )}
@@ -668,7 +716,7 @@ export default function Profile() {
             </div>
           )}
 
-          {/* Админ переходы (как было) */}
+          {/* Админ переходы */}
           {role === "admin" && (
             <div className="bg-white rounded-2xl p-4 shadow-sm">
               <div className="flex items-center justify-between">
@@ -685,7 +733,6 @@ export default function Profile() {
                   История заявок
                 </Link>
               </div>
-              {/* Примечание: на бэке у тебя защита "Role change blocked" при апсёрте — это ок, просто игнорим ошибку на фронте. */}
             </div>
           )}
 
