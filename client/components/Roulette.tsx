@@ -162,10 +162,10 @@ export default function Roulette() {
           <div className="overflow-hidden rounded-2xl ring-1 ring-slate-200 relative">
             <motion.div ref={trackRef} className="flex gap-3 p-3" animate={controls} initial={{ x: 0 }}>
               {track.map((p, i) => (
-                <div key={i} data-card className="min-w-[120px] max-w-[120px] h-28 flex items-center justify-center rounded-xl bg-slate-100">
+                <div key={i} data-card className="min-w-[140px] max-w-[140px] h-32 flex items-center justify-center rounded-2xl bg-gradient-to-br from-amber-50 to-amber-100 shadow-sm ring-1 ring-amber-200 rotate-[1.5deg]">
                   {p.kind === "stars" ? (
                     <div className="text-center">
-                      <div className="text-xl font-bold">{p.label} ⭐</div>
+                      <div className="text-2xl font-extrabold tracking-wide">{p.label} ⭐</div>
                       <div className="text-xs text-slate-500 mt-1">изменение баланса</div>
                     </div>
                   ) : (
@@ -215,6 +215,7 @@ export default function Roulette() {
             </div>
           )}
         </div>
+        <PrizeList />
       </div>
 
       {/* Fullscreen overlay with GIF (green chroma removed on the fly) */}
@@ -272,4 +273,30 @@ function ChromaGif() {
   }, []);
 
   return <canvas ref={canvasRef} className="w-64 h-64 pointer-events-none" />;
+}
+
+function PrizeList() {
+  const items = [
+    { label: "+3 ⭐", note: "часто" },
+    { label: "+5 ⭐", note: "часто" },
+    { label: "+10 ⭐", note: "нормально" },
+    { label: "+15 ⭐", note: "нормально" },
+    { label: "+50 ⭐", note: "редко" },
+    { label: "+100 ⭐", note: "редко" },
+    { label: "+1000 ⭐", note: "очень редко" },
+    { label: "Plush Pepe NFT", note: "ультра-редко" },
+  ];
+  return (
+    <div className="mt-6 rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 p-4">
+      <h3 className="text-base font-semibold">Какие призы можно получить</h3>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        {items.map((it, i) => (
+          <div key={i} className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2 ring-1 ring-slate-200">
+            <div className="font-medium">{it.label}</div>
+            <div className="text-xs text-slate-500">{it.note}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }

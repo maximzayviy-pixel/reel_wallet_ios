@@ -11,13 +11,13 @@ type Prize =
 
 // Requested prize set
 const PRIZES: Prize[] = [
-  { type: "stars", label: "-3", value: -3, weight: 30 },
-  { type: "stars", label: "-5", value: -5, weight: 24 },
-  { type: "stars", label: "-10", value: -10, weight: 18 },
-  { type: "stars", label: "-15", value: -15, weight: 12 },
-  { type: "stars", label: "-50", value: -50, weight: 8 },
-  { type: "stars", label: "-100", value: -100, weight: 5.5 },
-  { type: "stars", label: "-1000", value: -1000, weight: 2.4 },
+  { type: "stars", label: "+3", value: 3, weight: 30 },
+  { type: "stars", label: "+5", value: 5, weight: 24 },
+  { type: "stars", label: "+10", value: 10, weight: 18 },
+  { type: "stars", label: "+15", value: 15, weight: 12 },
+  { type: "stars", label: "+50", value: 50, weight: 8 },
+  { type: "stars", label: "+100", value: 100, weight: 5.5 },
+  { type: "stars", label: "+1000", value: 1000, weight: 2.4 },
   { type: "nft", label: "Plush Pepe NFT", image: "https://i.imgur.com/BmoA5Ui.jpeg", weight: 0.1 },
 ];
 const TOTAL_WEIGHT = PRIZES.reduce((s, p) => s + p.weight, 0);
