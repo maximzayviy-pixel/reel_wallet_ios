@@ -460,8 +460,7 @@ export default function Profile() {
                 <div>
                   <div className="font-semibold">Верификация личности</div>
                   <p className="text-sm text-slate-600 mt-1">
-                    Мягкая проверка: загрузи фото лица и документа (паспорт/ID). Файлы попадут в Uploadcare,
-                    заявка улетит админу.
+                    Мягкая проверка: загрузи фото лица и документа (паспорт/ID).
                   </p>
                 </div>
               </div>
