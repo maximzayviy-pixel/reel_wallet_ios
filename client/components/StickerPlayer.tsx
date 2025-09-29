@@ -1,65 +1,55 @@
-// components/StickerPlayer.tsx — render Telegram .tgs (Lottie) stickers
+// components/StickerPlayer.tsx — рендер .tgs (Lottie)
 import { useEffect, useRef } from "react";
-import lottie, { AnimationItem } from "lottie-web";
-import { inflate } from "pako";
+import type { AnimationItem } from "lottie-web";
 
 type Props = {
   tgsUrl: string;
+  poster?: string;
   className?: string;
-  loop?: boolean;
-  autoplay?: boolean;
-  poster?: string | null;
 };
 
-export default function StickerPlayer({
-  tgsUrl,
-  className,
-  loop = true,
-  autoplay = true,
-  poster,
-}: Props) {
+export default function StickerPlayer({ tgsUrl, poster, className }: Props) {
   const ref = useRef<HTMLDivElement>(null);
-  const animRef = useRef<AnimationItem | null>(null);
-
   useEffect(() => {
+    let anim: AnimationItem | null = null;
     let aborted = false;
 
-    async function load() {
-      try {
-        const res = await fetch(tgsUrl);
-        const buf = new Uint8Array(await res.arrayBuffer());
-        const json = JSON.parse(new TextDecoder().decode(inflate(buf)));
+    (async () => {
+      const [{ default: lottie }, { inflate }] = await Promise.all([
+        import("lottie-web"),
+        import("pako"),
+      ]);
+      const res = await fetch(tgsUrl);
+      const buf = new Uint8Array(await res.arrayBuffer());
+      const json = JSON.parse(new TextDecoder().decode(inflate(buf)));
 
-        if (aborted || !ref.current) return;
+      if (!ref.current || aborted) return;
+      anim = lottie.loadAnimation({
+        container: ref.current,
+        renderer: "svg",
+        loop: true,
+        autoplay: true,
+        animationData: json,
+      });
+    })();
 
-        // optional faded poster under animation
-        if (poster && ref.current) {
-          const img = new Image();
-          img.src = poster;
-          img.className = "w-full h-full object-cover absolute inset-0";
-          img.style.opacity = "0.25";
-          ref.current.appendChild(img);
-        }
-
-        animRef.current = lottie.loadAnimation({
-          container: ref.current!,
-          renderer: "svg",
-          loop,
-          autoplay,
-          animationData: json,
-        });
-      } catch (e) {
-        // silent
-        console.error("StickerPlayer load error", e);
-      }
-    }
-
-    load();
     return () => {
       aborted = true;
-      animRef.current?.destroy();
+      try { anim?.destroy(); } catch {}
     };
-  }, [tgsUrl, loop, autoplay, poster]);
+  }, [tgsUrl]);
 
-  return <div ref={ref} className={className} />;
+  return (
+    <div className={className}>
+      {poster && (
+        <img
+          src={poster}
+          alt=""
+          className="w-full h-full object-cover absolute inset-0 opacity-0"
+          aria-hidden
+        />
+      )}
+      <div ref={ref} className="w-full h-full" />
+    </div>
+  );
 }
