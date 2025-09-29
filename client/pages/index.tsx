@@ -110,7 +110,7 @@ export default function Home() {
             {[
               { label: "Пополнить", href: "/topup", icon: <Wallet size={18} /> },
               { label: "Перевести", href: "transfer", icon: <Send size={18} /> },
-              { label: "Маркетплейс", href: "/obmen", icon: <Shuffle size={18} /> },
+              { label: "Маркет", href: "/obmen", icon: <Shuffle size={18} /> },
               { label: "Оплатить", href: "/scan", icon: <QrCode size={18} /> },
             ].map((b, i) => (
               <a key={i} href={b.href} className="bg-white/10 rounded-2xl py-3 text-center text-xs backdrop-blur block">
