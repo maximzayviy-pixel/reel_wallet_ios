@@ -3,7 +3,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { createClient } from "@supabase/supabase-js";
 import { requireAdmin } from "./_guard";
 
-/** — такие же вспомогательные функции, как в одиночном — */
+/** helpers */
 const CLEAN_TAGS = /<[^>]*>/g;
 const NBSP = /\u00A0/g;
 const take = (h: string, re: RegExp) => (h.match(re)?.[1] ?? "");
@@ -22,7 +22,10 @@ const numbersFrom = (text: string) =>
 
 function parseStats(html: string) {
   const pairs: Array<[string, string]> = [];
-  const re = /<div[^>]*class=["'][^"']*tgme_gift_stats_name[^"']*["'][^>]*>(.*?)<\/div>\s*<div[^>]*class=["'][^"']*tgme_gift_stats_value[^"']*["'][^>]*>(.*?)<\/div>/gsi;
+  const re = new RegExp(
+    '<div[^>]*class=["\'][^"\']*tgme_gift_stats_name[^"\']*["\'][^>]*>([\\s\\S]*?)<\\/div>\\s*<div[^>]*class=["\'][^"\']*tgme_gift_stats_value[^"\']*["\'][^>]*>([\\s\\S]*?)<\\/div>',
+    "gi"
+  );
   let m: RegExpExecArray | null;
   while ((m = re.exec(html))) pairs.push([textClean(m[1]).toLowerCase(), textClean(m[2])]);
 
