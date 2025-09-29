@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<body>
+<button onclick="refresh()">Refresh gifts</button>
+<script>
+async function refresh() {
+  const r = await fetch("/api/admin/gift-refresh-all?key=<152212152212152212>", {
+    method: "POST"
+  });
+  const data = await r.json();
+  console.log(data);
+  alert(JSON.stringify(data));
+}
+</script>
+</body>
+</html>
