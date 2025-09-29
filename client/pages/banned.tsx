@@ -61,7 +61,7 @@ export default function Banned() {
         <div className="bg-white max-w-md w-full rounded-3xl p-6 shadow-lg space-y-4">
           <h1 className="text-xl font-bold text-rose-700 text-center">Аккаунт заблокирован</h1>
           <p className="text-sm text-slate-700 text-center">
-            Ваш аккаунт был заблокирован. Ниже указана причина. Вы можете отправить апелляцию, если считаете, что блокировка была ошибочной.
+            Ваш аккаунт был заблокирован. Ниже указана причина. Вы не можете отправить апелляцию.
           </p>
           {info?.ban_reason && (
             <div className="bg-rose-100 text-rose-800 rounded-xl p-3 text-sm">
@@ -69,12 +69,12 @@ export default function Banned() {
             </div>
           )}
           <div className="space-y-2">
-            <label className="text-xs text-slate-500" htmlFor="appeal-input">Сообщение для апелляции</label>
+            <label className="text-xs text-slate-500" htmlFor="appeal-input">Апеляция не будет рассмотренна</label>
             <textarea
               id="appeal-input"
               value={appeal}
               onChange={(e) => setAppeal(e.target.value)}
-              placeholder="Опишите причину, почему блокировка должна быть снята"
+              placeholder="Аккаунт не подлежит разблокировке в сявзи с нарушением пункта 5.3 пользовательского соглашения"
               className="w-full h-24 rounded-xl ring-1 ring-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-slate-300"
             />
             <button
@@ -82,7 +82,7 @@ export default function Banned() {
               disabled={!appeal.trim()}
               className="w-full bg-rose-600 hover:bg-rose-700 text-white rounded-xl px-4 py-2 text-sm disabled:opacity-60"
             >
-              Отправить апелляцию
+              Просим использовать иные кошельки
             </button>
             {status && <div className="text-xs text-center text-emerald-600 mt-2">{status}</div>}
           </div>
