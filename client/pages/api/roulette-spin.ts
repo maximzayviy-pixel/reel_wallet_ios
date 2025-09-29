@@ -9,7 +9,7 @@ type Prize =
   | { type: "stars"; label: string; value: number; weight: number }
   | { type: "nft"; label: string; image: string; weight: number };
 
-// Requested prize set
+// Набор призов и веса ≈ проценты выпадения
 const PRIZES: Prize[] = [
   { type: "stars", label: "+3", value: 3, weight: 30 },
   { type: "stars", label: "+5", value: 5, weight: 24 },
@@ -25,75 +25,61 @@ const TOTAL_WEIGHT = PRIZES.reduce((s, p) => s + p.weight, 0);
 function pickPrize(): Prize {
   const r = (Number(crypto.randomBytes(6).readUIntBE(0, 6)) / 2 ** 48) * TOTAL_WEIGHT;
   let acc = 0;
-  for (const p of PRIZES) {
-    acc += p.weight;
-    if (r <= acc) return p;
-  }
+  for (const p of PRIZES) { acc += p.weight; if (r <= acc) return p; }
   return PRIZES[0];
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== "POST") return res.status(405).json({ error: "METHOD_NOT_ALLOWED" });
+  if (req.method !== "POST") return res.status(405).json({ ok: false, error: "METHOD_NOT_ALLOWED" });
 
-  // Get Telegram user id from initData (preferred) or body as fallback
-  const initData = (req.headers["x-init-data"] as string) || "";
+  // Берём tg_id из заголовка initData (Telegram) либо из тела
+  const initData = (req.headers["x-init-data"] as string) || (req.headers["x-telegram-init-data"] as string) || "";
   const bodyTg = Number((req.body || {})?.tg_id || 0);
-  // Minimal extraction of tg_id without full signature verification (assumed trusted reverse-proxy)
   let tg_id = bodyTg;
   try {
     const m = /user=%7B%22id%22%3A(\d+)/.exec(encodeURIComponent(initData));
     if (m) tg_id = Number(m[1]);
   } catch {}
-  if (!tg_id) return res.status(401).json({ error: "Unauthorized" });
+  if (!tg_id) return res.status(401).json({ ok: false, error: "UNAUTHORIZED" });
 
   const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!, { auth: { persistSession: false } });
 
   try {
-    // 1) Check balance
-    const { data: balView, error: balErr } = await supabase.rpc("get_balance_by_tg", { in_tg_id: tg_id });
+    // 1) Баланс
+    const { data: balView, error: balErr } = await supabase.rpc("get_balance_by_tg", { p_tg_id: tg_id });
     if (balErr) throw balErr;
-    const balance: number = balView?.balance ?? 0;
-    if (balance < COST_PER_SPIN) return res.status(400).json({ error: "NOT_ENOUGH_STARS" });
+    const balance: number = Number((balView as any)?.balance ?? 0);
+    if (balance < COST_PER_SPIN) return res.status(400).json({ ok: false, error: "NOT_ENOUGH_STARS" });
 
-    // 2) Charge spin cost
+    // 2) Списываем стоимость
     const { error: debitErr } = await supabase.from("ledger").insert({
-      tg_id,
-      delta: -COST_PER_SPIN,
-      type: "roulette_cost",
-      meta: { game: "roulette" },
+      tg_id, delta: -COST_PER_SPIN, type: "roulette_cost", meta: { game: "roulette" },
     });
     if (debitErr) throw debitErr;
 
-    // 3) Pick prize
+    // 3) Выбираем приз
     const prize = pickPrize();
 
-    // 4) Apply prize
+    // 4) Начисляем приз
     if (prize.type === "stars") {
       const { error: deltaErr } = await supabase.from("ledger").insert({
-        tg_id,
-        delta: prize.value,
-        type: "roulette_prize",
-        meta: { label: prize.label },
+        tg_id, delta: prize.value, type: "roulette_prize", meta: { label: prize.label },
       });
       if (deltaErr) throw deltaErr;
     } else {
-      // NFT — record as meta event without changing balance
       const { error: nftErr } = await supabase.from("ledger").insert({
-        tg_id,
-        delta: 0,
-        type: "nft_reward",
-        meta: { label: prize.label, image: prize.image, game: "roulette" },
+        tg_id, delta: 0, type: "nft_reward", meta: { label: prize.label, image: prize.image, game: "roulette" },
       });
       if (nftErr) throw nftErr;
     }
 
-    // 5) New balance
-    const { data: balAfter, error: balAfterErr } = await supabase.rpc("get_balance_by_tg", { in_tg_id: tg_id });
+    // 5) Новый баланс
+    const { data: balAfter, error: balAfterErr } = await supabase.rpc("get_balance_by_tg", { p_tg_id: tg_id });
     if (balAfterErr) throw balAfterErr;
 
-    res.status(200).json({ prize, balance: balAfter?.balance ?? 0 });
-  } catch (e:any) {
+    return res.status(200).json({ ok: true, prize, balance: Number((balAfter as any)?.balance ?? 0) });
+  } catch (e: any) {
     console.error(e);
-    res.status(500).json({ error: "SPIN_FAILED" });
+    return res.status(500).json({ ok: false, error: "SPIN_FAILED" });
   }
 }
