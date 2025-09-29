@@ -1,16 +1,204 @@
 // pages/profile.tsx
-// Мягкая интеграция KYC и вывода ⭐, без изменения твоих текущих API.
-// Требуется только NEXT_PUBLIC_UPLOADCARE_PUBLIC_KEY для Uploadcare.
+// Профиль со "мягким" KYC и выводом ⭐ по СБП.
+// ✅ Фикс перекрытия нижнего навбара (большой отступ снизу)
+// ✅ Кнопка вывода корректно меняет состояния (disabled/active)
+// ✅ Uploadcare ссылки нормализованы к https://ucarecdn.com/<uuid>/
+// ✅ Камера: фото лица, фото документа; видео «живости» (webm)
 
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import useBanRedirect from "../lib/useBanRedirect";
+import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import Layout from "../components/Layout";
 import Skeleton from "../components/Skeleton";
 import { createClient } from "@supabase/supabase-js";
-import Link from "next/link";
 
+// ====== Мини-компоненты камеры прямо в файле (чтобы не создавать новые файлы) ======
+function CameraShot({
+  label,
+  onCapture,
+  facingMode = "user",
+  width = 360,
+  height = 480,
+}: {
+  label: string;
+  onCapture: (dataUrl: string) => void;
+  facingMode?: "user" | "environment";
+  width?: number;
+  height?: number;
+}) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    let stream: MediaStream | null = null;
+    (async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode },
+          audio: false,
+        });
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+          setReady(true);
+        }
+      } catch (e: any) {
+        setErr(e?.message || "Не удалось открыть камеру");
+      }
+    })();
+    return () => {
+      stream?.getTracks().forEach((t) => t.stop());
+    };
+  }, [facingMode]);
+
+  const snap = () => {
+    const v = videoRef.current;
+    const c = canvasRef.current;
+    if (!v || !c) return;
+    c.width = width;
+    c.height = height;
+    const ctx = c.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(v, 0, 0, width, height);
+    const dataUrl = c.toDataURL("image/jpeg", 0.92);
+    onCapture(dataUrl);
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="text-sm">{label}</div>
+      <video ref={videoRef} playsInline muted className="rounded-xl w-full bg-black/5" />
+      <div className="flex items-center gap-2">
+        <button
+          onClick={snap}
+          disabled={!ready}
+          className="px-3 py-2 rounded-lg bg-indigo-600 text-white disabled:bg-slate-300"
+        >
+          Сфотографировать
+        </button>
+        {err && <div className="text-xs text-rose-600">{err}</div>}
+      </div>
+      <canvas ref={canvasRef} className="hidden" />
+    </div>
+  );
+}
+
+function LivenessRecorder({
+  onRecorded,
+  maxMs = 5000,
+}: {
+  onRecorded: (blob: Blob) => void;
+  maxMs?: number;
+}) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [rec, setRec] = useState<MediaRecorder | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [count, setCount] = useState<number>(0);
+  const chunks = useRef<BlobPart[]>([]);
+
+  useEffect(() => {
+    let stream: MediaStream | null = null;
+    (async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "user" },
+          audio: false,
+        });
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+        }
+      } catch (e: any) {
+        setErr(e?.message || "Нет доступа к камере");
+      }
+    })();
+    return () => {
+      stream?.getTracks().forEach((t) => t.stop());
+    };
+  }, []);
+
+  const start = () => {
+    const stream = videoRef.current?.srcObject as MediaStream | null;
+    if (!stream) return;
+    chunks.current = [];
+    const mr = new MediaRecorder(stream, { mimeType: "video/webm;codecs=vp8" });
+    mr.ondataavailable = (e) => e.data && chunks.current.push(e.data);
+    mr.onstop = () => {
+      const blob = new Blob(chunks.current, { type: "video/webm" });
+      onRecorded(blob);
+    };
+    mr.start(250);
+    setRec(mr);
+    setCount(Math.ceil(maxMs / 1000));
+    const timer = setInterval(() => {
+      setCount((c) => {
+        if (c <= 1) {
+          clearInterval(timer);
+          mr.stop();
+          return 0;
+        }
+        return c - 1;
+      });
+    }, 1000);
+  };
+
+  const stop = () => rec?.state === "recording" && rec.stop();
+
+  return (
+    <div className="space-y-2">
+      <div className="text-sm">Проверка «живости»: поверни голову влево-вправо</div>
+      <video ref={videoRef} playsInline muted className="rounded-xl w-full bg-black/5" />
+      <div className="flex items-center gap-2">
+        <button
+          onClick={start}
+          disabled={!!rec && rec.state === "recording"}
+          className="px-3 py-2 bg-indigo-600 text-white rounded-lg disabled:bg-slate-300"
+        >
+          Записать {count ? `(${count})` : ""}
+        </button>
+        <button
+          onClick={stop}
+          disabled={!rec || rec.state !== "recording"}
+          className="px-3 py-2 bg-slate-200 rounded-lg"
+        >
+          Стоп
+        </button>
+        {err && <div className="text-xs text-rose-600">{err}</div>}
+      </div>
+    </div>
+  );
+}
+
+// ====== Uploadcare helpers (жёстко нормализуем на ucarecdn.com/<UUID>/) ======
+function dataUrlToBlob(dataUrl: string): Blob {
+  const [header, base64] = dataUrl.split(",");
+  const type = /data:(.*?);/.exec(header)?.[1] || "image/jpeg";
+  const bin = atob(base64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type });
+}
+async function uploadcarePut(file: Blob, filename = "file.bin"): Promise<string> {
+  const pub = process.env.NEXT_PUBLIC_UPLOADCARE_PUBLIC_KEY;
+  if (!pub) throw new Error("Uploadcare public key is missing");
+  const form = new FormData();
+  form.append("UPLOADCARE_PUB_KEY", pub);
+  form.append("UPLOADCARE_STORE", "1");
+  form.append("file", file, filename);
+  const r = await fetch("https://upload.uploadcare.com/base/", { method: "POST", body: form });
+  const j = await r.json();
+  if (!r.ok || !j?.file) throw new Error(j?.error || "Uploadcare error");
+  // ❗️Нормализуем финальную ссылку: всегда ucarecdn.com/<uuid>/
+  return `https://ucarecdn.com/${j.file}/`;
+}
+async function uploadcarePutDataUrl(dataUrl: string): Promise<string> {
+  return uploadcarePut(dataUrlToBlob(dataUrl), "image.jpg");
+}
+
+// ====== Supabase клиент + Telegram MiniApp ======
 type TGUser = {
   id: number;
   username?: string;
@@ -20,7 +208,6 @@ type TGUser = {
   is_premium?: boolean;
   photo_url?: string;
 };
-
 type RoleRow = { role?: string | null };
 
 const supabase = createClient(
@@ -28,78 +215,42 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-// ✅ список админов через .env (можно: NEXT_PUBLIC_ADMINS=7264453091,12345678)
-const ADMINS_ENV = (process.env.NEXT_PUBLIC_ADMINS || "")
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
-
-// ===== Uploadcare helpers (как в scan) =====
-function dataUrlToBlob(dataUrl: string): Blob {
-  const [header, base64] = dataUrl.split(",");
-  const type = /data:(.*?);/.exec(header)?.[1] || "image/jpeg";
-  const bin = atob(base64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return new Blob([bytes], { type });
-}
-async function uploadToUploadcare(file: Blob | string): Promise<string> {
-  const pub = process.env.NEXT_PUBLIC_UPLOADCARE_PUBLIC_KEY;
-  if (!pub) throw new Error("Uploadcare public key is missing");
-  const form = new FormData();
-  form.append("UPLOADCARE_PUB_KEY", pub);
-  form.append("UPLOADCARE_STORE", "1");
-
-  let endpoint = "https://upload.uploadcare.com/base/";
-  if (typeof file === "string") {
-    endpoint = "https://upload.uploadcare.com/base64/";
-    const idx = file.indexOf(",");
-    form.append("file", idx >= 0 ? file.slice(idx + 1) : file);
-  } else {
-    form.append("file", file, "kyc.jpg");
-  }
-  const r = await fetch(endpoint, { method: "POST", body: form });
-  const j = await r.json();
-  if (!r.ok || !j?.file) throw new Error(j?.error || "Uploadcare error");
-  return `https://ucarecdn.com/${j.file}/`;
-}
-
-// ===== Справочник банков СБП (можешь подправить) =====
-const SBP_BANKS = [
-  { code: "sber", name: "Сбербанк" },
-  { code: "tcs", name: "Тинькофф" },
-  { code: "vtb", name: "ВТБ" },
-  { code: "alpha", name: "Альфа-Банк" },
+// Фолбек банки (если /api/sbp-banks недоступен)
+type Bank = { name: string; logo: string };
+const BANKS_FALLBACK: Bank[] = [
+  { name: "Сбербанк", logo: "https://upload.wikimedia.org/wikipedia/commons/1/16/Sberbank_Logo_2020_Russian.svg" },
+  { name: "Тинькофф", logo: "https://static.tinkoff.ru/logos/main-logo.svg" },
+  { name: "ВТБ", logo: "https://upload.wikimedia.org/wikipedia/commons/1/1d/VTB_logo_ru.svg" },
+  { name: "Альфа-Банк", logo: "https://upload.wikimedia.org/wikipedia/commons/6/60/Logo_Alfa-Bank.svg" },
 ];
 
 export default function Profile() {
-  // If the user is banned, redirect to the banned page
-  useBanRedirect();
-
   const [u, setU] = useState<TGUser | null>(null);
-  const [status, setStatus] = useState("Открой через Telegram Mini App, чтобы связать профиль.");
   const [isVerified, setIsVerified] = useState<boolean>(false);
-  const [loadingVerify, setLoadingVerify] = useState(false); // оставлен, но кнопки нет
   const [role, setRole] = useState<string>("user");
 
-  // промокод
+  // ===== Промокод
   const [code, setCode] = useState("");
   const [promoState, setPromoState] = useState<null | { ok: boolean; msg: string }>(null);
   const disabledRedeem = useMemo(() => !code.trim() || !u?.id, [code, u?.id]);
 
-  // ===== Soft KYC state =====
+  // ===== KYC
   const [face, setFace] = useState<string | null>(null);
   const [doc, setDoc] = useState<string | null>(null);
+  const [liveBlob, setLiveBlob] = useState<Blob | null>(null);
   const [kycSending, setKycSending] = useState(false);
   const [kycMsg, setKycMsg] = useState<string | null>(null);
 
-  // ===== Withdraw state =====
+  // ===== Вывод
   const [amount, setAmount] = useState<number>(0);
-  const [bank, setBank] = useState<string>(SBP_BANKS[0].code);
   const [account, setAccount] = useState<string>("");
+  const [banks, setBanks] = useState<Bank[]>([]);
+  const [bankQuery, setBankQuery] = useState("");
+  const [bank, setBank] = useState<string>("");
   const [wdSending, setWdSending] = useState(false);
   const [wdMsg, setWdMsg] = useState<string | null>(null);
 
+  // ===== Инициализация из Telegram + статусы
   useEffect(() => {
     let tries = 0;
     let usersChannel: ReturnType<typeof supabase.channel> | null = null;
@@ -112,13 +263,8 @@ export default function Profile() {
         if (user?.id) {
           clearInterval(t);
           setU(user);
-          setStatus("Связано с Telegram");
 
-          // ⚡️ мгновенный оверрайд из ENV — чтобы админка открывалась сразу
-          const isEnvAdmin = ADMINS_ENV.includes(String(user.id));
-          if (isEnvAdmin) setRole("admin");
-
-          // апсерт в БД
+          // апсерт (на бэке стоит защита от смены роли — см. логи)
           fetch("/api/auth-upsert", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -130,7 +276,7 @@ export default function Profile() {
             }),
           }).catch(() => {});
 
-          // флаг верификации — оставляем ТВОЙ эндпоинт
+          // верификация
           fetch("/api/verify-status", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -140,32 +286,20 @@ export default function Profile() {
             .then((j) => setIsVerified(!!j?.verified))
             .catch(() => {});
 
-          // роль из БД
+          // роль
           supabase
             .from("users")
             .select("role")
             .eq("tg_id", user.id)
             .maybeSingle()
-            .then(({ data, error }) => {
-              if (!error) {
-                const dbRole = (data as RoleRow)?.role || "user";
-                setRole(isEnvAdmin ? "admin" : dbRole);
-              } else {
-                setRole(isEnvAdmin ? "admin" : "user");
-              }
-            });
+            .then(({ data }) => setRole((data as RoleRow)?.role || "user"));
 
-          // realtime по роли
           usersChannel = supabase
             .channel(`users-role-${user.id}`)
             .on(
               "postgres_changes",
               { event: "*", schema: "public", table: "users", filter: `tg_id=eq.${user.id}` },
-              (payload: any) => {
-                const newRole = payload?.new?.role || payload?.old?.role || "user";
-                const isEnvAdminNow = ADMINS_ENV.includes(String(user.id));
-                setRole(isEnvAdminNow ? "admin" : newRole);
-              }
+              (payload: any) => setRole(payload?.new?.role || payload?.old?.role || "user")
             )
             .subscribe();
         } else if (tries > 60) {
@@ -180,44 +314,19 @@ export default function Profile() {
     };
   }, []);
 
-  const copyId = async () => {
-    if (!u?.id) return;
-    try {
-      await navigator.clipboard.writeText(String(u.id));
-    } catch {}
-  };
-
-  const openSupport = () => {
-    const tg = (window as any)?.Telegram?.WebApp;
-    const url = "https://t.me/ReelWalet";
-    if (tg?.openTelegramLink) tg.openTelegramLink(url);
-    else window.open(url, "_blank");
-  };
-
-  // buyVerify оставлен, но кнопка скрыта согласно задаче
-  const buyVerify = async () => {
-    if (!u?.id) return;
-    setLoadingVerify(true);
-    try {
-      const tg = (window as any)?.Telegram?.WebApp;
-      const r = await fetch("/api/buy-verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tg_id: u.id }),
-      });
-      const j = await r.json();
-      if (!j.ok) throw new Error(j.error || "INVOICE_FAILED");
-      const link = j.link || j.invoice_link || j.url;
-      if (!link) throw new Error("INVOICE_LINK_EMPTY");
-      if (tg?.openInvoice) tg.openInvoice(link);
-      else if (tg?.openTelegramLink) tg.openTelegramLink(link);
-      else window.open(link, "_blank");
-    } catch (e: any) {
-      alert(e?.message || "Ошибка");
-    } finally {
-      setLoadingVerify(false);
-    }
-  };
+  // ===== Банки СБП
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch("/api/sbp-banks");
+        const j = await r.json();
+        if (j?.ok && Array.isArray(j.items)) setBanks(j.items as Bank[]);
+        else setBanks(BANKS_FALLBACK);
+      } catch {
+        setBanks(BANKS_FALLBACK);
+      }
+    })();
+  }, []);
 
   const redeem = async () => {
     if (!u?.id || !code.trim()) return;
@@ -242,36 +351,30 @@ export default function Profile() {
     }
   };
 
-  // ===== Soft KYC handlers =====
-  const onPick =
-    (setter: (s: string) => void) =>
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const f = e.target.files?.[0];
-      if (!f) return;
-      const reader = new FileReader();
-      reader.onload = () => setter(String(reader.result));
-      reader.readAsDataURL(f);
-    };
-
   const submitKYC = async () => {
     if (!u?.id) return setKycMsg("Не определён Telegram-профиль.");
-    if (!face || !doc) return setKycMsg("Загрузи фото лица и документа.");
+    if (!face || !doc) return setKycMsg("Сделай фото лица и документа.");
     setKycSending(true);
     setKycMsg(null);
     try {
-      const face_url = await uploadToUploadcare(dataUrlToBlob(face));
-      const doc_url = await uploadToUploadcare(dataUrlToBlob(doc));
+      const face_url = await uploadcarePutDataUrl(face);
+      const doc_url = await uploadcarePutDataUrl(doc);
+      let liveness_url: string | undefined;
+      if (liveBlob) {
+        liveness_url = await uploadcarePut(liveBlob, "liveness.webm");
+      }
+
       const r = await fetch(`/api/kyc-submit?tg_id=${u.id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ face_url, doc_url }),
+        body: JSON.stringify({ face_url, doc_url, liveness_url }),
       });
       const j = await r.json();
       if (!j?.ok) throw new Error(j?.error || "Не удалось отправить заявку");
       setKycMsg("Заявка отправлена. Проверим в ближайшее время.");
-      // Мягко: UI покажет «на проверке», а кнопка вывода появится только после approve на бэке
       setFace(null);
       setDoc(null);
+      setLiveBlob(null);
     } catch (e: any) {
       setKycMsg(e?.message || "Ошибка отправки");
     } finally {
@@ -279,24 +382,23 @@ export default function Profile() {
     }
   };
 
-  // ===== Withdraw handler =====
-  const submitWithdraw = async () => {
-    if (!u?.id) return setWdMsg("Не определён Telegram-профиль.");
-    if (!isVerified) return setWdMsg("Доступно после подтверждения KYC.");
-    if (amount <= 0) return setWdMsg("Укажи сумму в ⭐.");
-    if (!account.trim()) return setWdMsg("Укажи номер телефона для СБП.");
+  const canWithdraw = useMemo(() => {
+    if (!isVerified) return false;
+    if (!u?.id) return false;
+    if (!bank || !account.trim()) return false;
+    if (!Number.isFinite(amount) || amount <= 0) return false;
+    return true;
+  }, [isVerified, u?.id, bank, account, amount]);
 
+  const submitWithdraw = async () => {
+    if (!canWithdraw) return;
     setWdSending(true);
     setWdMsg(null);
     try {
-      const r = await fetch(`/api/withdraw-create?tg_id=${u.id}`, {
+      const r = await fetch(`/api/withdraw-create?tg_id=${u!.id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          amount_stars: amount,
-          bank_code: bank,
-          account,
-        }),
+        body: JSON.stringify({ amount_stars: amount, bank_code: bank, account }),
       });
       const j = await r.json();
       if (!j?.ok) throw new Error(j?.error || "Не удалось создать заявку");
@@ -310,39 +412,30 @@ export default function Profile() {
     }
   };
 
+  const banksFiltered = banks.filter((b) =>
+    !bankQuery || b.name.toLowerCase().includes(bankQuery.toLowerCase())
+  );
+
   return (
     <Layout title="Профиль — Reel Wallet">
-      {/* лёгкий синий фон на всю высоту */}
       <div className="min-h-[100dvh] bg-gradient-to-br from-[#f0f6ff] via-[#e7f0ff] to-[#e6f7ff]">
-        <div className="bg-gradient-to-br from-indigo-600 via-blue-600 to-cyan-500 text-white rounded-b-3xl pb-10 pt-12">
+        {/* Header */}
+        <div className="bg-gradient-to-br from-indigo-600 via-blue-600 to-cyan-500 text-white rounded-b-3xl pb-10 pt-12 relative z-10">
           <div className="max-w-md mx-auto px-4">
             <div className="flex items-center gap-4">
               <div className="w-16 h-16 rounded-full overflow-hidden ring-2 ring-white/40 bg-white/20 flex items-center justify-center">
-                {u?.photo_url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={u.photo_url} alt="avatar" className="w-full h-full object-cover" />
-                ) : (
-                  <span className="text-2xl">🙂</span>
-                )}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                {u?.photo_url ? <img src={u.photo_url} alt="avatar" className="w-full h-full object-cover" /> : <span className="text-2xl">🙂</span>}
               </div>
-
               <div className="min-w-0">
-                {/* имя + синяя галочка при верификации */}
                 <div className="text-lg font-semibold truncate flex items-center gap-1">
-                  {u
-                    ? `${u.first_name ?? ""} ${u?.last_name ?? ""}`.trim() ||
-                      (u.username ? `@${u.username}` : "Пользователь")
-                    : <Skeleton className="h-5 w-40" />
-                  }
-
+                  {u ? (
+                    `${u.first_name ?? ""} ${u?.last_name ?? ""}`.trim() || (u.username ? `@${u.username}` : "Пользователь")
+                  ) : (
+                    <Skeleton className="h-5 w-40" />
+                  )}
                   {u && isVerified && (
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      className="w-4 h-4 text-sky-500 flex-shrink-0"
-                      viewBox="0 0 24 24"
-                      fill="currentColor"
-                      aria-label="Верифицирован"
-                    >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-sky-300" viewBox="0 0 24 24" fill="currentColor">
                       <path
                         fillRule="evenodd"
                         d="M12 2.25a9.75 9.75 0 100 19.5 9.75 9.75 0 000-19.5zm4.03 6.97a.75.75 0 10-1.06-1.06L11 12.09l-1.97-1.97a.75.75 0 10-1.06 1.06l2.5 2.5c.3.3.79.3 1.06 0l4.5-4.5z"
@@ -351,27 +444,28 @@ export default function Profile() {
                     </svg>
                   )}
                 </div>
-
                 <div className="text-sm opacity-90 truncate">
                   {u ? (u.username ? `@${u.username}` : "—") : <Skeleton className="h-4 w-24 mt-1" />}
                 </div>
               </div>
-
               <button
-                onClick={openSupport}
+                onClick={() => {
+                  const tg = (window as any)?.Telegram?.WebApp;
+                  const url = "https://t.me/ReelWalet";
+                  if (tg?.openTelegramLink) tg.openTelegramLink(url);
+                  else window.open(url, "_blank");
+                }}
                 className="ml-auto text-[11px] bg-white/20 hover:bg-white/30 transition rounded-full px-3 py-1"
               >
                 Поддержка
               </button>
             </div>
-
-            <div className="mt-4 text-xs opacity-90">
-              {u ? "Связано с Telegram" : status}
-            </div>
           </div>
         </div>
 
-        <div className="max-w-md mx-auto px-4 -mt-6 space-y-6 relative z-10 pb-8">
+        {/* Content */}
+        <div className="max-w-md mx-auto px-4 -mt-6 space-y-6 relative z-0 pb-28">
+          {/* Карточка профиля */}
           <div className="bg-white rounded-2xl p-4 shadow-sm">
             <div className="flex items-center justify-between mb-3">
               <div className="font-semibold">Данные профиля</div>
@@ -393,34 +487,24 @@ export default function Profile() {
               <div className="bg-slate-50 rounded-xl p-3">
                 <div className="text-[11px] text-slate-500">ID</div>
                 <div className="font-medium">{u ? u.id : <Skeleton className="h-4 w-20" />}</div>
-                <button onClick={copyId} className="mt-2 text-[11px] text-slate-600 underline">
+                <button
+                  onClick={async () => u?.id && (await navigator.clipboard.writeText(String(u.id)).catch(()=>{}))}
+                  className="mt-2 text-[11px] text-slate-600 underline"
+                >
                   Скопировать
                 </button>
               </div>
-
               <div className="bg-slate-50 rounded-xl p-3">
                 <div className="text-[11px] text-slate-500">Username</div>
                 <div className="font-medium">{u ? (u.username ? `@${u.username}` : "—") : <Skeleton className="h-4 w-24" />}</div>
               </div>
-
               <div className="bg-slate-50 rounded-xl p-3">
                 <div className="text-[11px] text-slate-500">Имя</div>
                 <div className="font-medium">{u ? (u.first_name || "—") : <Skeleton className="h-4 w-24" />}</div>
               </div>
-
               <div className="bg-slate-50 rounded-xl p-3">
                 <div className="text-[11px] text-slate-500">Фамилия</div>
                 <div className="font-medium">{u ? (u.last_name || "—") : <Skeleton className="h-4 w-24" />}</div>
-              </div>
-
-              <div className="bg-slate-50 rounded-xl p-3">
-                <div className="text-[11px] text-slate-500">Язык</div>
-                <div className="font-medium">{u ? (u.language_code || "—") : <Skeleton className="h-4 w-16" />}</div>
-              </div>
-
-              <div className="bg-slate-50 rounded-xl p-3">
-                <div className="text-[11px] text-slate-500">Premium</div>
-                <div className="font-medium">{u ? (u.is_premium ? "Telegram Premium ✓" : "—") : <Skeleton className="h-4 w-24" />}</div>
               </div>
             </div>
 
@@ -439,8 +523,8 @@ export default function Profile() {
                 />
                 <button
                   onClick={redeem}
-                  disabled={disabledRedeem}
-                  className="rounded-xl bg-slate-900 text-white text-sm px-4 py-2 disabled:opacity-60"
+                    disabled={disabledRedeem}
+                    className="rounded-xl bg-slate-900 text-white text-sm px-4 py-2 disabled:opacity-60"
                 >
                   Активировать
                 </button>
@@ -453,37 +537,37 @@ export default function Profile() {
             </div>
           </div>
 
-          {/* ===== Инлайн KYC (видно, если не верифицирован) ===== */}
+          {/* ===== Инлайн KYC (если не верифицирован) ===== */}
           {u && !isVerified && (
             <div className="bg-white rounded-2xl p-4 shadow-sm space-y-4">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <div className="font-semibold">Верификация личности</div>
                   <p className="text-sm text-slate-600 mt-1">
-                    Мягкая проверка: загрузи фото лица и документа (паспорт/ID).
+                    Сделай фото лица, документа и короткое видео с поворотом головы. Файлы попадут в Uploadcare,
+                    заявка улетит админу.
                   </p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <label className="block">
-                  <div className="text-sm mb-1">Фото лица</div>
-                  <input type="file" accept="image/*" onChange={(e) => onPick(setFace)(e)} />
-                  {face && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={face} alt="face" className="w-full mt-2 rounded-xl ring-1 ring-slate-200" />
-                  )}
-                </label>
+              <CameraShot label="Фото лица" facingMode="user" onCapture={(data) => setFace(data)} />
+              {face && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={face} alt="face" className="w-full mt-2 rounded-xl ring-1 ring-slate-200" />
+              )}
 
-                <label className="block">
-                  <div className="text-sm mb-1">Фото документа</div>
-                  <input type="file" accept="image/*" onChange={(e) => onPick(setDoc)(e)} />
-                  {doc && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={doc} alt="doc" className="w-full mt-2 rounded-xl ring-1 ring-slate-200" />
-                  )}
-                </label>
-              </div>
+              <CameraShot label="Фото документа" facingMode="environment" onCapture={(data) => setDoc(data)} />
+              {doc && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={doc} alt="doc" className="w-full mt-2 rounded-xl ring-1 ring-slate-200" />
+              )}
+
+              <LivenessRecorder onRecorded={(blob) => setLiveBlob(blob)} />
+              {liveBlob && (
+                <div className="text-xs text-slate-500">
+                  Видео записано ({Math.round(liveBlob.size / 1024)} КБ)
+                </div>
+              )}
 
               <div className="flex items-center gap-3">
                 <button
@@ -498,11 +582,11 @@ export default function Profile() {
                 {kycMsg && <div className="text-sm text-slate-700">{kycMsg}</div>}
               </div>
 
-              <div className="text-xs text-slate-500">Мы сообщим, как только админ проверит документы.</div>
+              <div className="text-xs text-slate-500">Уведомим, когда админ проверит документы.</div>
             </div>
           )}
 
-          {/* ===== Вывод ⭐ по СБП (видно, если верифицирован) ===== */}
+          {/* ===== Вывод ⭐ по СБП (после верификации) ===== */}
           {u && isVerified && (
             <div className="bg-white rounded-2xl p-4 shadow-sm space-y-4">
               <div className="flex items-start justify-between gap-4">
@@ -526,23 +610,37 @@ export default function Profile() {
                   />
                 </div>
 
-                <div className="space-y-1">
-                  <label className="text-sm text-slate-600">Банк СБП</label>
-                  <select
+                <div className="space-y-1 md:col-span-2">
+                  <label className="text-sm text-slate-600">Поиск банка</label>
+                  <input
                     className="w-full rounded-xl ring-1 ring-slate-200 px-3 py-2"
-                    value={bank}
-                    onChange={(e) => setBank(e.target.value)}
-                  >
-                    {SBP_BANKS.map((b) => (
-                      <option key={b.code} value={b.code}>
-                        {b.name}
-                      </option>
+                    placeholder="Начни вводить название..."
+                    value={bankQuery}
+                    onChange={(e) => setBankQuery(e.target.value)}
+                  />
+                  <div className="grid grid-cols-3 gap-2 max-h-56 overflow-auto pr-1 mt-2">
+                    {banksFiltered.map((b) => (
+                      <button
+                        key={`${b.name}-${b.logo}`}
+                        onClick={() => setBank(b.name)}
+                        className={`flex flex-col items-center gap-1 rounded-xl ring-1 px-2 py-2 transition
+                          ${bank === b.name ? "ring-indigo-400 bg-indigo-50" : "ring-slate-200 bg-white hover:bg-slate-50"}`}
+                        title={b.name}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={b.logo} alt={b.name} className="h-6 w-auto object-contain" />
+                        <span className="text-[10px] text-slate-600 text-center line-clamp-2">{b.name}</span>
+                      </button>
                     ))}
-                  </select>
+                    {banksFiltered.length === 0 && (
+                      <div className="col-span-3 text-xs text-slate-500">Ничего не найдено</div>
+                    )}
+                  </div>
+                  {bank && <div className="text-xs text-slate-600 mt-1">Выбран: <b>{bank}</b></div>}
                 </div>
 
-                <div className="space-y-1">
-                  <label className="text-sm text-slate-600">Номер телефона</label>
+                <div className="space-y-1 md:col-span-3">
+                  <label className="text-sm text-slate-600">Номер телефона для СБП</label>
                   <input
                     type="tel"
                     placeholder="+7XXXXXXXXXX"
@@ -556,9 +654,9 @@ export default function Profile() {
               <div className="flex items-center gap-3">
                 <button
                   onClick={submitWithdraw}
-                  disabled={wdSending}
+                  disabled={!canWithdraw || wdSending}
                   className={`px-4 py-2 rounded-xl text-white ${
-                    wdSending ? "bg-slate-300" : "bg-emerald-600 hover:bg-emerald-700"
+                    !canWithdraw || wdSending ? "bg-slate-300" : "bg-emerald-600 hover:bg-emerald-700"
                   }`}
                 >
                   Отправить заявку
@@ -570,7 +668,7 @@ export default function Profile() {
             </div>
           )}
 
-          {/* Админ-блок */}
+          {/* Админ переходы (как было) */}
           {role === "admin" && (
             <div className="bg-white rounded-2xl p-4 shadow-sm">
               <div className="flex items-center justify-between">
@@ -587,6 +685,7 @@ export default function Profile() {
                   История заявок
                 </Link>
               </div>
+              {/* Примечание: на бэке у тебя защита "Role change blocked" при апсёрте — это ок, просто игнорим ошибку на фронте. */}
             </div>
           )}
 
