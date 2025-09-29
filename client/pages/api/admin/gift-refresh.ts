@@ -3,77 +3,110 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { createClient } from "@supabase/supabase-js";
 import { requireAdmin } from "./_guard";
 
-/** helpers */
+/* ----------------------- helpers ----------------------- */
 const CLEAN_TAGS = /<[^>]*>/g;
 const NBSP = /\u00A0/g;
 
-function textClean(s: string) {
-  return s.replace(CLEAN_TAGS, "").replace(NBSP, " ").trim();
-}
-function take(html: string, re: RegExp) {
-  const m = html.match(re);
-  return m ? m[1] : "";
-}
-function toNumber(s?: string | null) {
+const textClean = (s: string) => s.replace(CLEAN_TAGS, "").replace(NBSP, " ").trim();
+const take = (html: string, re: RegExp) => html.match(re)?.[1] ?? "";
+const toNumber = (s?: string | null) => {
   if (!s) return null;
   const norm = s.replace(/\s|\u00A0/g, "").replace(",", ".");
   const n = Number(norm);
   return Number.isFinite(n) ? n : null;
-}
-function numbersFrom(text: string) {
-  const arr = Array.from(text.replace(NBSP, " ").matchAll(/([\d\s.,]+)/g)).map(m =>
-    (m[1] || "").replace(/\s|\u00A0/g, "").replace(",", ".")
-  );
-  return arr.map(x => Number(x)).filter(n => Number.isFinite(n));
-}
+};
+const numbersFrom = (text: string) =>
+  Array.from(text.replace(NBSP, " ").matchAll(/([\d\s.,]+)/g))
+    .map((m) => (m[1] || "").replace(/\s|\u00A0/g, "").replace(",", "."))
+    .map((x) => Number(x))
+    .filter((n) => Number.isFinite(n));
 
-/** универсальный разбор таблички характеристик (без флага s) */
+/** универсальный парсер блока характеристик */
 function parseStats(html: string) {
-  const pairs: Array<[string, string]> = [];
-  const re = new RegExp(
-    '<div[^>]*class=["\'][^"\']*tgme_gift_stats_name[^"\']*["\'][^>]*>([\\s\\S]*?)<\\/div>\\s*<div[^>]*class=["\'][^"\']*tgme_gift_stats_value[^"\']*["\'][^>]*>([\\s\\S]*?)<\\/div>',
-    "gi"
-  );
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(html))) {
-    const name = textClean(m[1]).toLowerCase();
-    const val = textClean(m[2]);
-    if (name && val) pairs.push([name, val]);
-  }
-
   let model: string | null = null;
   let backdrop: string | null = null;
-  let pattern: string | null = null;
+  let pattern: string | null = null; // aka Symbol
   let amount_total: number | null = null;
   let amount_issued: number | null = null;
   let value_rub: number | null = null;
 
-  for (const [name, val] of pairs) {
-    if (/^(модель|model)$/.test(name)) model = val;
-    else if (/^(фон|background|backdrop)$/.test(name)) backdrop = val;
-    else if (/^(узор|pattern)$/.test(name)) pattern = val;
-    else if (/^(количество|amount)$/.test(name)) {
-      const nums = numbersFrom(val);
-      if (nums.length >= 1) amount_total = nums[0];
-      if (nums.length >= 2) amount_issued = nums[1];
-      if (nums.length === 1 && /(выпущено|issued)/i.test(val)) amount_issued = nums[0];
-    } else if (/^(ценность|value)$/.test(name) || /RUB/i.test(val)) {
-      const n = toNumber((val.match(/([\d\s.,]+)\s*RUB/i) || [])[1] ?? val);
-      if (n != null) value_rub = n;
+  // Попытка №1 — “богатая” таблица name/value
+  {
+    const re = new RegExp(
+      '<div[^>]*class=["\'][^"\']*tgme_gift_stats_name[^"\']*["\'][^>]*>([\\s\\S]*?)<\\/div>\\s*<div[^>]*class=["\'][^"\']*tgme_gift_stats_value[^"\']*["\'][^>]*>([\\s\\S]*?)<\\/div>',
+      "gi"
+    );
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(html))) {
+      const name = textClean(m[1]).toLowerCase();
+      const val = textClean(m[2]);
+      if (!name || !val) continue;
+
+      if (/^(модель|model)$/.test(name)) model = val;
+      else if (/^(фон|background|backdrop)$/.test(name)) backdrop = val;
+      else if (/^(узор|pattern|symbol)$/.test(name)) pattern = val;
+      else if (/^(количество|amount|quantity)$/.test(name)) {
+        const nums = numbersFrom(val);
+        if (nums.length >= 2) {
+          // обычно "issued/total"
+          amount_issued = nums[0];
+          amount_total = nums[1];
+        } else if (nums.length === 1) {
+          if (/(выпущено|issued)/i.test(val)) amount_issued = nums[0];
+          else amount_total = nums[0];
+        }
+      } else if (/^(ценность|value)$/.test(name) || /RUB/i.test(val)) {
+        const n = toNumber((val.match(/([\d\s.,]+)\s*RUB/i) || [])[1] ?? val);
+        if (n != null) value_rub = n;
+      }
     }
   }
 
+  // Попытка №2 — “упрощённая” текстовая версия страницы
+  const plain = html
+    .replace(/\r/g, "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\u00A0/g, " ")
+    .replace(/[ \t]+/g, " ")
+    .trim();
+
+  if (!model) {
+    const m = plain.match(/\bModel\s+([^\n]+?)(?:\s+\d+(\.\d+)?%|\s*$)/i);
+    if (m) model = m[1].trim();
+  }
+  if (!backdrop) {
+    const m = plain.match(/\b(Backdrop|Background)\s+([^\n]+?)(?:\s+\d+(\.\d+)?%|\s*$)/i);
+    if (m) backdrop = m[2].trim();
+  }
+  if (!pattern) {
+    const m = plain.match(/\b(Symbol|Pattern)\s+([^\n]+?)(?:\s+\d+(\.\d+)?%|\s*$)/i);
+    if (m) pattern = m[2].trim();
+  }
+  if (amount_total == null || amount_issued == null) {
+    // Пример: Quantity 158 109/173 176 issued
+    const q = plain.match(/\bQuantity\s+([\d\s.,]+)\s*\/\s*([\d\s.,]+)\s+issued/i);
+    if (q) {
+      const issued = Number(q[1].replace(/\s|,/g, "").replace(",", "."));
+      const total = Number(q[2].replace(/\s|,/g, "").replace(",", "."));
+      if (Number.isFinite(issued)) amount_issued = issued;
+      if (Number.isFinite(total)) amount_total = total;
+    }
+  }
   if (value_rub == null) {
-    const vRaw =
-      take(html, /Ценность[^~]*~\s*([\d\s.,]+)\s*RUB/i) ||
-      take(html, /Value[^~]*~\s*([\d\s.,]+)\s*RUB/i);
-    value_rub = toNumber(vRaw);
+    const v =
+      plain.match(/Value[^~]*~\s*([\d\s.,]+)\s*RUB/i) ||
+      plain.match(/Ценность[^~]*~\s*([\d\s.,]+)\s*RUB/i);
+    if (v) {
+      const n = Number(v[1].replace(/\s|,/g, "").replace(",", "."));
+      if (Number.isFinite(n)) value_rub = n;
+    }
   }
 
   return { model, backdrop, pattern, amount_total, amount_issued, value_rub };
 }
 
-/** парс ссылок на постер/анимку/стикер */
+/** ссылки на tgs / постер / видео */
 function parseMedia(html: string) {
   const image =
     take(html, /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
@@ -90,11 +123,7 @@ function parseMedia(html: string) {
     take(html, /<source[^>]+type=["']application\/x-tgsticker["'][^>]+srcset=["']([^"']+)["']/i) ||
     take(html, /<source[^>]+type=["']application\/x-tgsticker["'][^>]+src=["']([^"']+)["']/i);
 
-  return {
-    image_url: image || null,
-    anim_url: video || null,
-    tgs_url: tgs || null,
-  };
+  return { image_url: image || null, anim_url: video || null, tgs_url: tgs || null };
 }
 
 async function fetchGift(link: string) {
@@ -111,6 +140,7 @@ async function fetchGift(link: string) {
   return { ...parseMedia(html), ...parseStats(html) };
 }
 
+/* ----------------------- handler ----------------------- */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const admin = await requireAdmin(req, res);
   if (!admin) return;
@@ -120,6 +150,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!id) return res.status(400).json({ ok: false, error: "id_required" });
 
   const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
+
   const { data: gift, error } = await supabase
     .from("gifts")
     .select("id,tme_link")
