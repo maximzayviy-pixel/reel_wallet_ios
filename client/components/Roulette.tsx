@@ -12,13 +12,13 @@ const NFT_IMG = "https://i.imgur.com/BmoA5Ui.jpeg";
 const COST = 15;
 
 const PRIZES: Prize[] = [
-  { kind: "stars", label: "-3", value: -3 },
-  { kind: "stars", label: "-5", value: -5 },
-  { kind: "stars", label: "-10", value: -10 },
-  { kind: "stars", label: "-15", value: -15 },
-  { kind: "stars", label: "-50", value: -50 },
-  { kind: "stars", label: "-100", value: -100 },
-  { kind: "stars", label: "-1000", value: -1000 },
+  { kind: "stars", label: "+3", value: 3 },
+  { kind: "stars", label: "+5", value: 5 },
+  { kind: "stars", label: "+10", value: 10 },
+  { kind: "stars", label: "+15", value: 15 },
+  { kind: "stars", label: "+50", value: 50 },
+  { kind: "stars", label: "+100", value: 100 },
+  { kind: "stars", label: "+1000", value: 1000 },
   { kind: "nft", label: "Plush Pepe NFT", image: NFT_IMG },
 ];
 
@@ -169,11 +169,16 @@ export default function Roulette() {
         )}
 
         {/* Wheel */}
-        <div className="mt-4">
-          <div className="overflow-hidden rounded-2xl ring-1 ring-slate-200 relative bg-white">
+        <div className="mt-4 relative">
+          {!agreeConfirmed && (
+            <div className="absolute inset-0 z-20 bg-white/70 backdrop-blur-sm rounded-2xl flex items-center justify-center">
+              <div className="text-center text-slate-600 text-sm px-4">Чтобы играть, отметьте галочку и нажмите «Ознакомился» выше</div>
+            </div>
+          )}
+          <div className={`${!agreeConfirmed ? "pointer-events-none blur-[1px]" : ""} overflow-hidden rounded-2xl ring-1 ring-slate-200 relative bg-white`}>
             <motion.div ref={trackRef} className="flex gap-3 p-3" animate={controls} initial={{ x: 0 }}>
               {track.map((p, i) => (
-                <div key={i} data-card className="min-w-[160px] max-w-[160px] h-36 flex items-center justify-center rounded-2xl bg-gradient-to-br from-amber-50 via-yellow-50 to-amber-100 shadow-md ring-1 ring-amber-300 relative overflow-hidden">
+                <div key={i} data-card className="min-w-[130px] max-w-[130px] h-32 p-3 flex items-center justify-center rounded-2xl bg-gradient-to-br from-amber-50 via-yellow-50 to-amber-100 shadow-md ring-1 ring-amber-300 relative overflow-hidden">
                   <span className="pointer-events-none absolute inset-0 opacity-40 bg-[radial-gradient(ellipse_at_top_left,_var(--tw-gradient-stops))] from-white/60 via-transparent to-transparent translate-x-[-20%]" />
                   {p.kind === "stars" ? (
                     <div className="text-center">
@@ -182,7 +187,7 @@ export default function Roulette() {
                     </div>
                   ) : (
                     <div className="text-center">
-                      <img src={(p as any).image} alt="NFT" className="w-14 h-14 rounded-xl mx-auto object-cover ring-1 ring-amber-300 shadow-sm" />
+                      <img src={(p as any).image} alt="NFT" className="w-14 h-14 rounded-xl mx-auto object-contain ring-1 ring-amber-300 shadow-sm bg-white" />
                       <div className="text-xs mt-1">Plush Pepe NFT</div>
                     </div>
                   )}
@@ -194,7 +199,7 @@ export default function Roulette() {
           </div>
 
           {/* Controls */}
-          <div className="mt-4 grid grid-cols-2 gap-3">
+          <div className={`${!agreeConfirmed ? "pointer-events-none blur-[1px]" : ""} mt-4 grid grid-cols-2 gap-3`}>
             <button
               className="h-11 rounded-xl ring-1 ring-slate-200 bg-white disabled:opacity-60"
               onClick={fetchBalance}
@@ -305,10 +310,10 @@ function PrizeList() {
       <h3 className="text-base font-semibold">Какие призы можно получить</h3>
       <div className="mt-3 grid grid-cols-2 gap-3">
         {items.map((it, i) => (
-          <div key={i} className="flex items-center gap-3 rounded-2xl bg-gradient-to-br from-slate-50 to-slate-100 px-3 py-3 ring-1 ring-slate-200">
+          <div key={i} className="flex items-center gap-3 rounded-2xl bg-gradient-to-br from-slate-50 to-slate-100 px-3 py-3 ring-1 ring-slate-200 min-h-[64px] overflow-hidden">
             <div className="w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center ring-1 ring-slate-200 bg-white">
               {it.kind === "nft" ? (
-                <img src={it.image!} alt="NFT" className="w-full h-full object-cover" />
+                <img src={it.image!} alt="NFT" className="w-full h-full object-contain bg-white" />
               ) : (
                 <span className="text-lg font-extrabold">⭐</span>
               )}
@@ -317,7 +322,7 @@ function PrizeList() {
               <div className="font-semibold">{it.kind==="stars" ? `${it.label} ⭐` : it.label}</div>
               <div className="text-xs text-slate-500">{it.note}</div>
             </div>
-            <span className="text-[10px] uppercase tracking-wide px-2 py-1 rounded-full bg-amber-100 text-amber-800 ring-1 ring-amber-200">
+            <span className="text-[10px] uppercase tracking-wide px-2 py-1 rounded-full bg-amber-100 text-amber-800 ring-1 ring-amber-200 whitespace-nowrap">
               {it.note}
             </span>
           </div>
