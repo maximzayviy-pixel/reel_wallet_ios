@@ -1,6 +1,15 @@
 // pages/api/transfer-stars.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createClient } from "@supabase/supabase-js";
+import crypto from "crypto";
+
+type CreateClient = typeof createClient;
+
+let createSupabaseClient: CreateClient = createClient;
+
+export function __setSupabaseClientFactory(factory?: CreateClient) {
+  createSupabaseClient = factory || createClient;
+}
 
 export const config = { api: { bodyParser: true } };
 
@@ -10,6 +19,106 @@ type Body = {
   amount_stars?: number; // целое, >=1
   note?: string;
 };
+
+const TELEGRAM_INIT_HEADERS = [
+  "x-telegram-init-data",
+  "x-init-data",
+  "authorization",
+] as const;
+
+type AuthResult =
+  | { ok: true; tgId: number }
+  | { ok: false; status: number; error: string };
+
+function getBotToken() {
+  return (
+    process.env.TELEGRAM_BOT_TOKEN ||
+    process.env.TG_BOT_TOKEN ||
+    process.env.TELEGRAM_BOT ||
+    ""
+  );
+}
+
+function parseInitData(raw: string) {
+  try {
+    return new URLSearchParams(raw);
+  } catch {
+    return null;
+  }
+}
+
+function validateTelegramAuth(req: NextApiRequest): AuthResult {
+  const rawInitData = TELEGRAM_INIT_HEADERS.reduce<string | undefined>((acc, key) => {
+    if (acc) return acc;
+    const value = req.headers[key] as string | undefined;
+    if (!value) return acc;
+    return value;
+  }, undefined);
+
+  if (!rawInitData) {
+    return { ok: false, status: 401, error: "AUTH_REQUIRED" };
+  }
+
+  const botToken = getBotToken();
+  if (!botToken) {
+    return { ok: false, status: 500, error: "NO_BOT_TOKEN" };
+  }
+
+  const params = parseInitData(rawInitData);
+  if (!params) {
+    return { ok: false, status: 401, error: "BAD_AUTH_PAYLOAD" };
+  }
+
+  const receivedHash = params.get("hash");
+  if (!receivedHash) {
+    return { ok: false, status: 401, error: "BAD_AUTH_PAYLOAD" };
+  }
+
+  const pairs: string[] = [];
+  params.forEach((value, key) => {
+    if (key === "hash") return;
+    pairs.push(`${key}=${value}`);
+  });
+  pairs.sort();
+  const dataCheckString = pairs.join("\n");
+
+  try {
+    const secretKey = crypto
+      .createHmac("sha256", "WebAppData")
+      .update(botToken)
+      .digest();
+    const calcHash = crypto
+      .createHmac("sha256", secretKey)
+      .update(dataCheckString)
+      .digest("hex");
+    const calcBuf = Buffer.from(calcHash, "hex");
+    const recvBuf = Buffer.from(receivedHash, "hex");
+    if (calcBuf.length !== recvBuf.length) {
+      return { ok: false, status: 401, error: "INVALID_AUTH" };
+    }
+    if (!crypto.timingSafeEqual(calcBuf, recvBuf)) {
+      return { ok: false, status: 401, error: "INVALID_AUTH" };
+    }
+  } catch {
+    return { ok: false, status: 401, error: "INVALID_AUTH" };
+  }
+
+  const userRaw = params.get("user");
+  if (!userRaw) {
+    return { ok: false, status: 403, error: "NO_TELEGRAM_USER" };
+  }
+
+  try {
+    const parsed = JSON.parse(userRaw);
+    const tgId = Number(parsed?.id || 0);
+    if (!tgId) {
+      return { ok: false, status: 403, error: "NO_TELEGRAM_USER" };
+    }
+    return { ok: true, tgId };
+  } catch {
+    return { ok: false, status: 403, error: "NO_TELEGRAM_USER" };
+  }
+}
 
 const ok = (res: NextApiResponse, body: any = { ok: true }) =>
   res.status(200).json(body);
@@ -31,14 +140,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!SUPABASE_URL || !SERVICE_KEY) {
     return bad(res, 500, "NO_SUPABASE_CREDS");
   }
-  const supabase = createClient(SUPABASE_URL, SERVICE_KEY, {
+  const supabase = createSupabaseClient(SUPABASE_URL, SERVICE_KEY, {
     auth: { persistSession: false },
   });
 
-  let { from_tg_id, to_tg_id, amount_stars, note } = (req.body || {}) as Body;
+  const auth = validateTelegramAuth(req);
+  if (!auth.ok) {
+    return bad(res, auth.status, auth.error);
+  }
 
-  // в хедере может быть initData, но тут его не валидируем — это отдельная задача
-  // const initData = req.headers["x-telegram-init-data"] as string | undefined;
+  const body = (req.body || {}) as Body;
+  const tamperedFrom = Number(body?.from_tg_id || 0);
+  if (tamperedFrom && tamperedFrom !== auth.tgId) {
+    return bad(res, 403, "FROM_ID_MISMATCH");
+  }
+
+  let { to_tg_id, amount_stars, note } = body;
+  let from_tg_id = auth.tgId;
 
   // валидации
   from_tg_id = Number(from_tg_id || 0);
@@ -57,6 +175,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .eq("tg_id", from_tg_id)
       .maybeSingle();
     if (!fromUser) return bad(res, 402, "SENDER_NOT_FOUND");
+    if (Number(fromUser.tg_id) !== from_tg_id)
+      return bad(res, 403, "SENDER_MISMATCH");
 
     const { data: toUser } = await supabase
       .from("users")
