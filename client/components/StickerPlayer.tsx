@@ -1,3 +1,4 @@
+// components/StickerPlayer.tsx — render Telegram .tgs (Lottie) stickers
 import { useEffect, useRef } from "react";
 import lottie, { AnimationItem } from "lottie-web";
 import { inflate } from "pako";
@@ -25,14 +26,14 @@ export default function StickerPlayer({
 
     async function load() {
       try {
-        // подтянем .tgs и распакуем как lottie json
         const res = await fetch(tgsUrl);
-        const buf = await res.arrayBuffer();
-        const json = JSON.parse(new TextDecoder().decode(inflate(new Uint8Array(buf))));
+        const buf = new Uint8Array(await res.arrayBuffer());
+        const json = JSON.parse(new TextDecoder().decode(inflate(buf)));
+
         if (aborted || !ref.current) return;
 
-        // фон-постер, пока лоадится
-        if (poster && ref.current && !ref.current.firstChild) {
+        // optional faded poster under animation
+        if (poster && ref.current) {
           const img = new Image();
           img.src = poster;
           img.className = "w-full h-full object-cover absolute inset-0";
@@ -47,17 +48,18 @@ export default function StickerPlayer({
           autoplay,
           animationData: json,
         });
-      } catch {
-        // silent fallback
+      } catch (e) {
+        // silent
+        console.error("StickerPlayer load error", e);
       }
     }
-    load();
 
+    load();
     return () => {
       aborted = true;
       animRef.current?.destroy();
     };
-  }, [tgsUrl, autoplay, loop, poster]);
+  }, [tgsUrl, loop, autoplay, poster]);
 
   return <div ref={ref} className={className} />;
 }
