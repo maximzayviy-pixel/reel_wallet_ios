@@ -20,7 +20,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.method !== 'GET') {
     return res.status(405).json({ success: false, error: 'METHOD_NOT_ALLOWED' });
   }
-
   const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '';
   const SERVICE_KEY =
     process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -29,13 +28,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
   const supabase = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
-  // Extract initData from headers, query or body.  This supports calls from
-  // both the Telegram webapp and direct API invocations.
+  // We support two modes of identification for backward compatibility:
+  // 1) A valid Telegram initData string provided via headers, query or body.
+  //    When present, this takes precedence and authenticates the caller.
+  // 2) A fallback tg_id query parameter for legacy clients.  No authentication
+  //    is performed when initData is absent, so this should be phased out.
   const initData =
     (req.headers['x-telegram-init-data'] as string) ??
     (req.headers['x-init-data'] as string) ??
     ((req.query.initData as string) ?? '') ??
     ((req.body as any)?.initData ?? '');
+  const tgIdQuery = Number((req.query.tg_id as string) ?? 0);
+  let tg_id: number | null = null;
 
   const BOT_TOKEN =
     process.env.TELEGRAM_BOT_TOKEN ||
@@ -43,28 +47,34 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     process.env.TG_BOT_TOKEN ||
     process.env.NEXT_PUBLIC_BOT_TOKEN ||
     '';
-  if (!initData || !BOT_TOKEN) {
-    return res.status(401).json({ success: false, error: 'NO_INIT_DATA' });
-  }
-  if (!validateTelegramInitData(initData, BOT_TOKEN)) {
-    return res.status(401).json({ success: false, error: 'INVALID_INIT_DATA' });
-  }
-  const tgUser = parseTelegramUser(initData);
-  if (!tgUser || !tgUser.id) {
-    return res.status(401).json({ success: false, error: 'INVALID_USER' });
-  }
-  const tg_id = Number(tgUser.id);
-  if (!Number.isFinite(tg_id) || tg_id <= 0) {
-    return res.status(401).json({ success: false, error: 'INVALID_USER' });
+
+  if (initData) {
+    if (!BOT_TOKEN || !validateTelegramInitData(initData, BOT_TOKEN)) {
+      return res.status(401).json({ success: false, error: 'INVALID_INIT_DATA' });
+    }
+    const tgUser = parseTelegramUser(initData);
+    if (!tgUser || !tgUser.id) {
+      return res.status(401).json({ success: false, error: 'INVALID_USER' });
+    }
+    tg_id = Number(tgUser.id);
+    if (!Number.isFinite(tg_id) || tg_id <= 0) {
+      return res.status(401).json({ success: false, error: 'INVALID_USER' });
+    }
+    // If caller also provided tg_id param, ensure they match
+    if (tgIdQuery && tgIdQuery !== tg_id) {
+      return res.status(403).json({ success: false, error: 'TG_ID_MISMATCH' });
+    }
+  } else {
+    // No initData: fall back to insecure tg_id query
+    if (!tgIdQuery) {
+      return res.status(400).json({ success: false, error: 'tg_id or initData required' });
+    }
+    tg_id = tgIdQuery;
   }
 
-  // Fetch the authenticated user's record.  Only a limited set of fields is
-  // returned to avoid leaking sensitive information.
   const { data, error } = await supabase
     .from('users')
-    .select(
-      'id,tg_id,username,is_banned,ban_reason,ban_status,ban_appeal,wallet_limit,wallet_restricted,is_verified,role'
-    )
+    .select('id,tg_id,username,is_banned,ban_reason,ban_status,ban_appeal,wallet_limit,wallet_restricted,is_verified,role')
     .eq('tg_id', tg_id)
     .maybeSingle();
   if (error || !data) {
