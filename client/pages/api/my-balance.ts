@@ -3,26 +3,31 @@ import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL as string,
-  process.env.SUPABASE_SERVICE_ROLE_KEY as string, // нужен сервисный ключ, не public anon
+  process.env.SUPABASE_SERVICE_ROLE_KEY as string, // server-only!
   { auth: { persistSession: false } }
 );
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
-    const raw = (req.query.tg_id ?? '').toString();
-    const tgId = Number(raw);
+    const tgId = Number((req.query.tg_id ?? '').toString().trim());
     if (!tgId || !Number.isFinite(tgId)) {
       return res.status(400).json({ error: 'tg_id is required' });
     }
 
-    // дергаем вашу функцию
-    const { data, error } = await supabase.rpc('get_balance_by_tg', { tg_id: tgId });
+    const { data, error } = await supabase
+      .from('balances_by_tg')
+      .select('stars, ton, total_rub')
+      .eq('tg_id', tgId)
+      .maybeSingle(); // вернёт null если нет строки
+
     if (error) throw error;
 
-    // функция обычно возвращает одну строку { stars, ton, total_rub? }
-    const row = (Array.isArray(data) ? data[0] : data) || { stars: 0, ton: 0 };
-    return res.status(200).json({ stars: Number(row.stars) || 0, ton: Number(row.ton) || 0 });
-  } catch (e: any) {
+    const stars = Number(data?.stars ?? 0);
+    const ton = Number(data?.ton ?? 0);
+    const total_rub = Number(data?.total_rub ?? (stars / 2 + ton * 300));
+
+    return res.status(200).json({ stars, ton, total_rub });
+  } catch (e:any) {
     console.error('my-balance error', e);
     return res.status(500).json({ error: 'internal_error' });
   }
