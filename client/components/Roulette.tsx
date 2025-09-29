@@ -1,3 +1,4 @@
+// client/components/Roulette.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, useAnimation } from "framer-motion";
 
@@ -35,7 +36,6 @@ const CHANCES = [
 function useTg() {
   const [tgId, setTgId] = useState<number | null>(null);
   const [initData, setInitData] = useState<string>("");
-
   useEffect(() => {
     const w: any = typeof window !== "undefined" ? window : undefined;
     const tg = w?.Telegram?.WebApp;
@@ -43,12 +43,12 @@ function useTg() {
     if (id) setTgId(Number(id));
     setInitData(tg?.initData || "");
   }, []);
-
   return { tgId, initData };
 }
 
 export default function Roulette() {
   const { tgId, initData } = useTg();
+
   const [agreed, setAgreed] = useState(false);
   const [agreeConfirmed, setAgreeConfirmed] = useState(false);
   const [balance, setBalance] = useState<number | null>(null);
@@ -56,17 +56,15 @@ export default function Roulette() {
   const [result, setResult] = useState<Prize | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // одноразовое согласие
   useEffect(() => {
-    try {
-      if (window.localStorage.getItem("roulette_agreed") === "1") {
-        setAgreeConfirmed(true);
-      }
-    } catch {}
+    try { if (localStorage.getItem("roulette_agreed") === "1") setAgreeConfirmed(true); } catch {}
   }, []);
 
   const controls = useAnimation();
   const trackRef = useRef<HTMLDivElement>(null);
 
+  // баланс
   const fetchBalance = async () => {
     if (!tgId) { setError("Не удалось определить Telegram ID"); return; }
     const r = await fetch(`/api/my-balance?tg_id=${tgId}`);
@@ -76,8 +74,10 @@ export default function Roulette() {
   };
   useEffect(() => { fetchBalance(); }, [tgId]);
 
+  // длинная лента карточек
   const track = useMemo(() => Array(8).fill(0).flatMap(() => PRIZES), []);
 
+  // запуск спина
   const onSpin = async () => {
     setError(null);
     if (!agreeConfirmed) { setError("Подтвердите ознакомление с соглашением."); return; }
@@ -90,7 +90,7 @@ export default function Roulette() {
       const res = await fetch("/api/roulette-spin", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-init-data": initData || "" },
-        body: JSON.stringify({ tg_id: String(tgId) }),
+        body: JSON.stringify({ tg_id: String(tgId) }), // отправляем строкой
       });
       const json = await res.json();
       if (!res.ok || json?.ok === false) { setError(json?.error || "Ошибка спина"); return; }
@@ -110,7 +110,7 @@ export default function Roulette() {
       const targetX = -(finalIndex * (cardW + 12));
 
       await controls.start({ x: targetX, transition: { duration: 3.6, ease: [0.12, 0.6, 0.04, 1] } });
-      setResult(clientPrize);
+      setResult(clientPrize || null);
       setBalance(Number(json?.balance ?? balance));
     } finally {
       setBusy(false);
@@ -120,13 +120,155 @@ export default function Roulette() {
 
   return (
     <section className="mt-6">
-      {/* … остальная разметка рулетки … */}
-      <PrizeList />
+      <div className="rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 p-4">
+        <h2 className="text-lg font-semibold">Рулетка</h2>
+        <p className="text-slate-500 text-sm mt-1">Стоимость игры — <b>{COST} ⭐</b>.</p>
+
+        {/* Согласие (один раз) */}
+        {!agreeConfirmed && (
+          <div className="mt-4 rounded-xl bg-slate-50 p-3 ring-1 ring-slate-200">
+            <label className="flex items-start gap-3 cursor-pointer select-none">
+              <input type="checkbox" className="mt-1" checked={agreed} onChange={(e)=>setAgreed(e.target.checked)} />
+              <span className="text-sm text-slate-600">
+                Я ознакомился(-ась) с{" "}
+                <a className="text-blue-600 underline" href={AGREEMENT_URL} target="_blank" rel="noreferrer">пользовательским соглашением</a>
+                {" "}и принимаю условия.
+              </span>
+            </label>
+            <button
+              className={`mt-3 h-10 w-full rounded-xl ${agreed ? "bg-blue-600 text-white" : "bg-slate-200 text-slate-500"} disabled:opacity-60`}
+              onClick={() => { setAgreeConfirmed(true); try{ localStorage.setItem("roulette_agreed","1"); }catch{} }}
+              disabled={!agreed}
+            >
+              Ознакомился
+            </button>
+          </div>
+        )}
+
+        {/* РУЛЕТКА (сама лента + индикатор + кнопки) */}
+        <div className="mt-4 relative">
+          {!agreeConfirmed && (
+            <div className="absolute inset-0 z-20 bg-white/70 backdrop-blur-sm rounded-2xl flex items-center justify-center">
+              <div className="text-center text-slate-600 text-sm px-4">Чтобы играть, отметьте галочку и нажмите «Ознакомился» выше</div>
+            </div>
+          )}
+
+          <div className={`${!agreeConfirmed ? "pointer-events-none blur-[1px]" : ""}`}>
+            {/* Лента */}
+            <div className="overflow-hidden rounded-2xl ring-1 ring-slate-200 relative bg-white">
+              <motion.div ref={trackRef} className="flex gap-3 p-3" animate={controls} initial={{ x: 0 }}>
+                {Array(8).fill(0).flatMap(()=>PRIZES).map((p, i) => (
+                  <div
+                    key={i}
+                    data-card
+                    className="min-w-[128px] max-w-[128px] h-32 p-3 flex items-center justify-center rounded-2xl bg-gradient-to-br from-amber-50 via-yellow-50 to-amber-100 shadow-md ring-1 ring-amber-300 relative overflow-hidden"
+                  >
+                    <span className="pointer-events-none absolute inset-0 opacity-35 bg-[radial-gradient(ellipse_at_top_left,_var(--tw-gradient-stops))] from-white/60 via-transparent to-transparent" />
+                    {p.kind === "stars" ? (
+                      <div className="text-center">
+                        <div className="text-3xl font-black tracking-wide">{p.label} ⭐</div>
+                        <div className="text-xs text-slate-600 mt-1">изменение баланса</div>
+                      </div>
+                    ) : (
+                      <div className="text-center">
+                        <div className="w-16 h-16 rounded-xl mx-auto ring-1 ring-amber-300 shadow-sm bg-white overflow-hidden">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={NFT_IMG} alt="NFT" className="w-full h-full object-contain" />
+                        </div>
+                        <div className="text-xs mt-1">Plush Pepe NFT</div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </motion.div>
+              {/* Индикатор */}
+              <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-0 h-0 border-l-8 border-r-8 border-b-8 border-l-transparent border-r-transparent border-b-blue-600 drop-shadow" />
+            </div>
+
+            {/* Кнопки */}
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <button className="h-11 rounded-xl ring-1 ring-slate-200 bg-white disabled:opacity-60" onClick={fetchBalance} disabled={busy}>
+                Обновить баланс
+              </button>
+              <button className="h-11 rounded-xl bg-blue-600 text-white disabled:opacity-60" onClick={onSpin} disabled={busy || !agreeConfirmed}>
+                Крутить за {COST} ⭐
+              </button>
+            </div>
+          </div>
+
+          {/* Ошибки и результат */}
+          {error && <div className="text-sm text-red-600 mt-2">{error}</div>}
+
+          {result && (
+            <div className="mt-4 rounded-xl bg-emerald-50 ring-1 ring-emerald-200 p-3">
+              {result.kind === "stars" ? (
+                <div>Результат: {result.label} ⭐. Новый баланс: {balance ?? "—"} ⭐</div>
+              ) : (
+                <div className="flex items-center gap-3">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={NFT_IMG} className="w-10 h-10 rounded-lg" alt="Pepe NFT" />
+                  <div>Поздравляем! Вы получили <b>Plush Pepe NFT</b>. Свяжемся для выдачи приза.</div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Список призов с % и цветными бейджами */}
+        <PrizeList />
+      </div>
+
+      {/* Фуллскрин GIF-оверлей (green screen вырезаем) */}
+      <div className="fixed inset-0 z-50 hidden items-center justify-center bg-black/30 backdrop-blur-sm pointer-events-none roulette-overlay">
+        <ChromaGif />
+      </div>
+
+      <style jsx global>{`
+        body.roulette-overlay-open .roulette-overlay { display: flex; }
+      `}</style>
     </section>
   );
 }
 
-// Список призов с % и цветом
+// ——— Хромакей для GIF ———
+function ChromaGif() {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  const rafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.src = GIF_URL;
+    imgRef.current = img;
+
+    const canvas = canvasRef.current!;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+
+    const render = () => {
+      const i = imgRef.current; if (!i) return;
+      const w = 320, h = 320; canvas.width = w; canvas.height = h;
+      ctx.drawImage(i, 0, 0, w, h);
+      try {
+        const frame = ctx.getImageData(0, 0, w, h);
+        const data = frame.data;
+        if (!data) return;
+        for (let p = 0; p < data.length; p += 4) {
+          const r = data[p], g = data[p+1], b = data[p+2];
+          if (g > 140 && g - r > 40 && g - b > 40) data[p+3] = 0; // вырезаем зелёный
+        }
+        ctx.putImageData(frame, 0, 0);
+      } catch {}
+      rafRef.current = requestAnimationFrame(render);
+    };
+    img.onload = () => { render(); };
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, []);
+
+  return <canvas ref={canvasRef} className="w-64 h-64 pointer-events-none" />;
+}
+
+// ——— Список призов внизу ———
 function PrizeList() {
   const colorForPct = (p: number) =>
     p >= 20 ? "bg-emerald-100 text-emerald-800 ring-emerald-200"
@@ -139,8 +281,7 @@ function PrizeList() {
       <h3 className="text-base font-semibold">Какие призы можно получить</h3>
       <div className="mt-3 grid grid-cols-2 gap-3">
         {PRIZES.map((it, i) => {
-          const key = it.kind === "nft" ? it.label : it.label;
-          const pct = CHANCES.find(c => c.key === key)?.pct ?? 0;
+          const pct = CHANCES.find(c => c.key === (it.kind === "nft" ? it.label : it.label))?.pct ?? 0;
           return (
             <div key={i} className="rounded-2xl bg-gradient-to-br from-slate-50 to-slate-100 ring-1 ring-slate-200 p-3">
               <div className="flex items-center gap-3">
