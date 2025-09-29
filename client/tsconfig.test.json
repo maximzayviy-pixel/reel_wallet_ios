@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "./dist-tests",
+    "module": "commonjs",
+    "target": "es2019",
+    "types": ["node"],
+    "declaration": false,
+    "sourceMap": false
+  },
+  "include": [
+    "__tests__/**/*.test.ts",
+    "pages/api/**/*.ts",
+    "pages/api/admin/**/*.ts",
+    "lib/**/*.ts"
+  ]
+}
