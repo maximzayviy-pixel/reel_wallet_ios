@@ -1,4 +1,3 @@
-// client/components/Roulette.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, useAnimation } from "framer-motion";
 
@@ -33,16 +32,33 @@ const CHANCES = [
   { key: "Plush Pepe NFT", pct: 0.1 },
 ];
 
+// --- TG helper with browser fallback ---
 function useTg() {
   const [tgId, setTgId] = useState<number | null>(null);
   const [initData, setInitData] = useState<string>("");
+
   useEffect(() => {
     const w: any = typeof window !== "undefined" ? window : undefined;
     const tg = w?.Telegram?.WebApp;
-    const id = tg?.initDataUnsafe?.user?.id;
-    if (id) setTgId(Number(id));
-    setInitData(tg?.initData || "");
+
+    try { tg?.ready?.(); tg?.expand?.(); } catch {}
+
+    const idFromTg = tg?.initDataUnsafe?.user?.id;
+    const init = tg?.initData || "";
+
+    const params = new URLSearchParams(w?.location?.search || "");
+    const idFromQuery = params.get("debug_tg_id") || params.get("tg_id");
+    const idFromEnv = (w?.process?.env?.NEXT_PUBLIC_DEBUG_TG_ID as string) || "";
+
+    const finalId =
+      idFromTg ? String(idFromTg) :
+      (idFromQuery && /^\d+$/.test(idFromQuery) ? idFromQuery : "") ||
+      (idFromEnv && /^\d+$/.test(idFromEnv) ? idFromEnv : "");
+
+    if (finalId) setTgId(Number(finalId));
+    setInitData(init || "");
   }, []);
+
   return { tgId, initData };
 }
 
@@ -90,7 +106,7 @@ export default function Roulette() {
       const res = await fetch("/api/roulette-spin", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-init-data": initData || "" },
-        body: JSON.stringify({ tg_id: String(tgId) }), // отправляем строкой
+        body: JSON.stringify({ tg_id: String(tgId) }), // строкой — чтобы точно не ушёл пустяк
       });
       const json = await res.json();
       if (!res.ok || json?.ok === false) { setError(json?.error || "Ошибка спина"); return; }
@@ -145,7 +161,7 @@ export default function Roulette() {
           </div>
         )}
 
-        {/* РУЛЕТКА (сама лента + индикатор + кнопки) */}
+        {/* РУЛЕТКА */}
         <div className="mt-4 relative">
           {!agreeConfirmed && (
             <div className="absolute inset-0 z-20 bg-white/70 backdrop-blur-sm rounded-2xl flex items-center justify-center">
@@ -154,7 +170,7 @@ export default function Roulette() {
           )}
 
           <div className={`${!agreeConfirmed ? "pointer-events-none blur-[1px]" : ""}`}>
-            {/* Лента */}
+            {/* Лента карточек */}
             <div className="overflow-hidden rounded-2xl ring-1 ring-slate-200 relative bg-white">
               <motion.div ref={trackRef} className="flex gap-3 p-3" animate={controls} initial={{ x: 0 }}>
                 {Array(8).fill(0).flatMap(()=>PRIZES).map((p, i) => (
@@ -196,8 +212,17 @@ export default function Roulette() {
             </div>
           </div>
 
-          {/* Ошибки и результат */}
-          {error && <div className="text-sm text-red-600 mt-2">{error}</div>}
+          {/* Ошибки/результат */}
+          {error && (
+            <div className="text-sm text-red-600 mt-2">
+              {error}
+              {error === "Не удалось определить Telegram ID" && (
+                <div className="text-xs text-slate-500 mt-1">
+                  Откройте страницу внутри Telegram-мини-приложения или добавьте в URL параметр <code>?debug_tg_id=123456789</code> для теста в браузере.
+                </div>
+              )}
+            </div>
+          )}
 
           {result && (
             <div className="mt-4 rounded-xl bg-emerald-50 ring-1 ring-emerald-200 p-3">
@@ -218,7 +243,7 @@ export default function Roulette() {
         <PrizeList />
       </div>
 
-      {/* Фуллскрин GIF-оверлей (green screen вырезаем) */}
+      {/* Фуллскрин GIF-оверлей (зелёный хромакей убираем) */}
       <div className="fixed inset-0 z-50 hidden items-center justify-center bg-black/30 backdrop-blur-sm pointer-events-none roulette-overlay">
         <ChromaGif />
       </div>
@@ -230,7 +255,7 @@ export default function Roulette() {
   );
 }
 
-// ——— Хромакей для GIF ———
+// --- рендер GIF с удалением зелёного фона ---
 function ChromaGif() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
@@ -252,10 +277,9 @@ function ChromaGif() {
       try {
         const frame = ctx.getImageData(0, 0, w, h);
         const data = frame.data;
-        if (!data) return;
         for (let p = 0; p < data.length; p += 4) {
           const r = data[p], g = data[p+1], b = data[p+2];
-          if (g > 140 && g - r > 40 && g - b > 40) data[p+3] = 0; // вырезаем зелёный
+          if (g > 140 && g - r > 40 && g - b > 40) data[p+3] = 0; // убираем зелёный
         }
         ctx.putImageData(frame, 0, 0);
       } catch {}
@@ -268,7 +292,7 @@ function ChromaGif() {
   return <canvas ref={canvasRef} className="w-64 h-64 pointer-events-none" />;
 }
 
-// ——— Список призов внизу ———
+// --- список призов ---
 function PrizeList() {
   const colorForPct = (p: number) =>
     p >= 20 ? "bg-emerald-100 text-emerald-800 ring-emerald-200"
