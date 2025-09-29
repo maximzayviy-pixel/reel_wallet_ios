@@ -5,7 +5,7 @@ import { validateTelegramInitData, parseTelegramUser } from "../../../lib/valida
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") return res.status(405).end();
 
-  const BOT_TOKEN = process.env.TG_BOT_TOKEN || "";
+ const BOT_TOKEN = process.env.TG_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || "";
   if (!BOT_TOKEN) return res.status(500).json({ ok: false, error: "SERVER_MISCONFIG:TG_BOT_TOKEN" });
 
   // initData из заголовка (предпочтительно), либо из body/query
