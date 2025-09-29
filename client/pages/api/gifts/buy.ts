@@ -1,12 +1,16 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createClient } from "@supabase/supabase-js";
-import getValidatedTelegramUser from "../../lib/validateTelegram";
+import { validateTelegramInitData, parseTelegramUser } from "../../lib/validateTelegram";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") return res.status(405).end();
   try {
-    const user = await getValidatedTelegramUser(req);
-    if (!user) return; // validateTelegram sends error
+    // Validate Telegram WebApp initData from header 'x-init-data' or query 'initData'
+    const initData = String(req.headers['x-init-data'] || req.query.initData || '');
+    const ok = validateTelegramInitData(initData, process.env.TG_BOT_TOKEN!);
+    if (!ok) return res.status(401).json({ ok:false, error: 'INVALID_INIT_DATA' });
+    const user = parseTelegramUser(initData);
+    if (!user?.id) return res.status(400).json({ ok:false, error: 'NO_TELEGRAM_USER' });
     const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
     const gift_id = Number(req.body?.gift_id);
     if (!gift_id) return res.status(400).json({ ok:false, error: "gift_id_required" });
