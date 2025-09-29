@@ -1,4 +1,4 @@
-// pages/obmen.tsx — вкладка «Обмен», фикс показа превью/анимации и характеристик
+// pages/obmen.tsx — вкладка «Обмен», SSR-safe
 import { useEffect, useState } from "react";
 import Layout from "../components/Layout";
 import StickerPlayer from "../components/StickerPlayer";
@@ -17,9 +17,19 @@ export default function Obmen() {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Gift | null>(null);
   const [buying, setBuying] = useState(false);
-  const [betaHidden, setBetaHidden] = useState<boolean>(
-    !!sessionStorage.getItem("beta_banner_seen_v1")
-  );
+
+  // ❗ SSR-safe: не трогаем sessionStorage при первом рендере
+  const [betaHidden, setBetaHidden] = useState<boolean>(true);
+  useEffect(() => {
+    try {
+      const seen = typeof window !== "undefined"
+        ? window.sessionStorage.getItem("beta_banner_seen_v1")
+        : "1";
+      setBetaHidden(!!seen);
+    } catch {
+      setBetaHidden(true);
+    }
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -43,7 +53,9 @@ export default function Obmen() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-init-data": (window as any)?.Telegram?.WebApp?.initData || "",
+          "x-init-data": (typeof window !== "undefined"
+            ? (window as any)?.Telegram?.WebApp?.initData
+            : "") || "",
         },
         body: JSON.stringify({ gift_id: gift.id }),
       });
@@ -67,7 +79,14 @@ export default function Obmen() {
             <div className="font-semibold mb-1">Бета-версия магазина</div>
             <div className="text-sm opacity-90">Возможны баги и задержки загрузки превью.</div>
             <button
-              onClick={() => { sessionStorage.setItem("beta_banner_seen_v1","1"); setBetaHidden(true); }}
+              onClick={() => {
+                try {
+                  if (typeof window !== "undefined") {
+                    window.sessionStorage.setItem("beta_banner_seen_v1", "1");
+                  }
+                } catch {}
+                setBetaHidden(true);
+              }}
               className="mt-3 inline-flex items-center rounded-xl bg-yellow-500 text-white px-4 py-2 hover:bg-yellow-600"
             >
               Окей
@@ -120,7 +139,10 @@ export default function Obmen() {
                   <a href={selected.tme_link} target="_blank" className="text-xs text-blue-600 underline">
                     Открыть в Telegram
                   </a>
-                  <div className="text-2xl font-bold mt-1">{fmt(selected.value_rub ?? selected.price_rub ?? 0)}</div>
+                  <div className="text-2xl font-bold mt-1">
+                    {fmt(selected.value_rub ?? selected.price_rub ?? 0)}
+                  </div>
+
                   <div className="mt-3 grid grid-cols-2 gap-2 text-[12px]">
                     {selected.model && (
                       <div className="rounded-xl bg-slate-50 p-2">
@@ -149,6 +171,7 @@ export default function Obmen() {
                   </div>
                 </div>
               </div>
+
               <div className="mt-5 grid grid-cols-2 gap-3">
                 <button className="h-11 rounded-xl ring-1 ring-slate-200 hover:bg-slate-50" onClick={()=>setSelected(null)}>Отмена</button>
                 <button className="h-11 rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60" disabled={buying} onClick={()=>buy(selected!)}>
