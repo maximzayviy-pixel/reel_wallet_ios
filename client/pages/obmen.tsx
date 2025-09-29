@@ -1,96 +1,93 @@
+// pages/browser.tsx — Marketplace for NFT gifts
 import { useEffect, useState } from "react";
-import useBanRedirect from '../lib/useBanRedirect';
 import Layout from "../components/Layout";
 
-export default function Obmen() {
-  useBanRedirect();
-  const [mounted, setMounted] = useState(false);
+type Gift = {
+  id: number; title: string; slug: string; number: number;
+  tme_link: string; price_rub: number; image_url?: string;
+};
+
+export default function Browser() {
+  const [tgId, setTgId] = useState<number | undefined>(undefined);
+  const [items, setItems] = useState<Gift[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Gift | null>(null);
+  const [buying, setBuying] = useState(false);
+
   useEffect(() => {
-    const t = requestAnimationFrame(() => setMounted(true));
-    return () => cancelAnimationFrame(t);
+    try {
+      // @ts-ignore
+      const id = window?.Telegram?.WebApp?.initDataUnsafe?.user?.id;
+      if (id) setTgId(Number(id));
+    } catch {}
+    fetch('/api/gifts/list').then(r=>r.json()).then(j=>{
+      if (j.ok) setItems(j.items); else setError(j.error || 'Ошибка загрузки');
+    }).catch(()=>setError('Ошибка сети')).finally(()=>setLoading(false));
   }, []);
 
+  const buy = async (gift: Gift) => {
+    setBuying(true);
+    try {
+      const r = await fetch('/api/gifts/buy', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ gift_id: gift.id })
+      });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.error || 'Ошибка');
+      // open link to transfer the collectible gift on Telegram
+      window.open(j.tme_link, '_blank');
+      alert('Покупка успешна! Ссылка на подарок открыта.');
+    } catch (e:any) {
+      alert('Не удалось купить: ' + e.message);
+    } finally { setBuying(false); }
+  };
+
   return (
-    <Layout title="Обмен">
-      {/* Фикс на весь экран без скролла */}
-      <div className="relative min-h-[100dvh] overflow-hidden bg-gradient-to-br from-[#e6f0ff] via-[#dbeafe] to-[#e0f2fe]">
-        {/* декор */}
-        <div aria-hidden className="absolute inset-0 overflow-hidden">
-          <div className="absolute inset-0 bg-[radial-gradient(1200px_700px_at_0%_0%,rgba(59,130,246,0.28)_0%,transparent_60%),radial-gradient(1000px_600px_at_100%_100%,rgba(2,132,199,0.26)_0%,transparent_60%)]" />
-          <div className="absolute -top-24 left-1/4 h-[28rem] w-[28rem] rounded-full bg-white/25 blur-3xl" />
-          <div className="absolute -bottom-24 right-1/5 h-[26rem] w-[26rem] rounded-full bg-white/20 blur-3xl" />
-          <div className="absolute inset-0 opacity-[0.12] [background-image:linear-gradient(0deg,rgba(255,255,255,.7)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.7)_1px,transparent_1px)] [background-size:40px_40px]" />
+    <Layout title="Обмен — маркетплейс подарков">
+      <div className="max-w-2xl mx-auto p-4 sm:p-6">
+        {loading && <div className="text-slate-500">Загрузка...</div>}
+        {error && <div className="text-red-600">{error}</div>}
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+          {items.map(g => (
+            <button key={g.id} onClick={()=>setSelected(g)} className="rounded-2xl bg-white ring-1 ring-slate-200 p-3 text-left">
+              <div className="aspect-square rounded-xl bg-slate-50 flex items-center justify-center overflow-hidden">
+                {g.image_url ? <img src={g.image_url} alt={g.title} className="w-full h-full object-cover" /> : <span className="text-4xl">🎁</span>}
+              </div>
+              <div className="mt-2">
+                <div className="text-sm font-medium">{g.title}</div>
+                <div className="text-xs text-slate-500">#{g.number}</div>
+                <div className="text-sm font-semibold mt-1">{g.price_rub} ₽</div>
+              </div>
+            </button>
+          ))}
         </div>
 
-        {/* Контент */}
-        <div className="relative flex min-h-[100dvh] items-center justify-center p-4">
-          <div className="relative w-full max-w-[680px]">
-            <div
-              aria-hidden
-              className="pointer-events-none absolute -inset-0.5 rounded-[34px] blur-2xl opacity-80"
-              style={{
-                background:
-                  "conic-gradient(from 180deg at 50% 50%, rgba(59,130,246,.35), rgba(2,132,199,.35), rgba(191,219,254,.35), rgba(59,130,246,.35))",
-              }}
-            />
-            <div
-              className={[
-                "relative rounded-[28px] bg-white/70 backdrop-blur-xl p-7 sm:p-10 ring-1 ring-white/50 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.25)]",
-                "transition-all duration-700 ease-out",
-                mounted ? "opacity-100 translate-y-0 scale-100" : "opacity-0 translate-y-2 scale-[0.99]",
-              ].join(" ")}
-            >
-              <div className="mx-auto h-12 w-12 rounded-2xl bg-blue-100/90 flex items-center justify-center text-xl shadow-inner">🚧</div>
-              <h1 className="mt-4 text-3xl sm:text-4xl font-semibold tracking-tight bg-gradient-to-r from-slate-900 via-slate-800 to-slate-600 bg-clip-text text-transparent">
-                Раздел в разработке
-              </h1>
-              <p className="mt-2 text-[15px] leading-7 text-slate-700">
-                Мы бережно готовим этот раздел. Совсем скоро здесь появится красивый и удобный обмен ⭐ звёзд и подарков.
-              </p>
-
-              <div className="mt-5 inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-xs font-medium text-white shadow-sm">
-                ✨ Обновление скоро
-              </div>
-
-              {/* Дорожная карта (пример) */}
-              <div className="mt-8">
-                <div className="text-xs font-medium text-slate-500">Дорожная карта</div>
-                <div className="mt-3 space-y-3">
-                  {[
-                    { title: "Обмен на TON", p: 70 },
-                    { title: "Обмен на другие криптовалюты", p: 50 },
-                    { title: "Обмен на рубли (обратный)", p: 40 },
-                  ].map((it) => (
-                    <div key={it.title}>
-                      <div className="flex items-center justify-between text-sm text-slate-700">
-                        <span>{it.title}</span>
-                        <span className="font-medium text-slate-900">{it.p}%</span>
-                      </div>
-                      <div className="mt-1 h-2 w-full rounded-full bg-slate-200 overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-gradient-to-r from-sky-400 to-blue-500"
-                          style={{ width: `${it.p}%` }}
-                        />
-                      </div>
-                    </div>
-                  ))}
+        {/* Modal */}
+        {selected && (
+          <div className="fixed inset-0 bg-black/30 flex items-end sm:items-center justify-center z-50" onClick={()=>setSelected(null)}>
+            <div className="bg-white rounded-2xl w-full sm:w-[420px] p-4 m-2" onClick={e=>e.stopPropagation()}>
+              <div className="flex gap-3">
+                <div className="w-28 h-28 rounded-xl bg-slate-50 overflow-hidden flex items-center justify-center">
+                  {selected.image_url ? <img src={selected.image_url} className="w-full h-full object-cover" /> : <span className="text-4xl">🎁</span>}
+                </div>
+                <div className="flex-1">
+                  <div className="font-semibold">{selected.title}</div>
+                  <div className="text-xs text-slate-500 mb-2">
+                    <a className="underline" href={selected.tme_link} target="_blank">Открыть в Telegram</a>
+                  </div>
+                  <div className="text-2xl font-bold">{selected.price_rub} ₽</div>
                 </div>
               </div>
-
-              <p className="mt-6 text-xs text-slate-500">
-                Вопросы и идеи — напишите администратору{" "}
-                <a
-                  href="https://t.me/ReelWalet"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline decoration-slate-300 hover:decoration-slate-500"
-                >
-                  @ReelWalet
-                </a>
-              </p>
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <button className="h-11 rounded-xl ring-1 ring-slate-200" onClick={()=>setSelected(null)}>Отмена</button>
+                <button className="h-11 rounded-xl bg-blue-600 text-white disabled:opacity-60" disabled={buying} onClick={()=>buy(selected!)}>
+                  Купить
+                </button>
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
     </Layout>
   );
