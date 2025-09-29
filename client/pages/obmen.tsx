@@ -1,96 +1,208 @@
+// pages/obmen.tsx — вкладка «Обмен» с родным фоном Telegram
 import { useEffect, useState } from "react";
-import useBanRedirect from '../lib/useBanRedirect';
 import Layout from "../components/Layout";
+import StickerPlayer from "../components/StickerPlayer";
+
+type Gift = {
+  id: number;
+  title: string;
+  slug: string;
+  number: number;
+  tme_link: string;
+  price_rub: number | null;
+  value_rub: number | null;
+  image_url: string | null;
+  tgs_url: string | null;
+  anim_url: string | null;
+  model: string | null;
+  backdrop: string | null;
+  pattern: string | null;
+  amount_issued: number | null;
+  amount_total: number | null;
+  preview_svg: string | null;      // <— новый фон из Telegram (data-uri)
+};
 
 export default function Obmen() {
-  useBanRedirect();
-  const [mounted, setMounted] = useState(false);
+  const [items, setItems] = useState<Gift[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Gift | null>(null);
+  const [buying, setBuying] = useState(false);
+
+  // баннер «бета»
+  const [betaHidden, setBetaHidden] = useState(true);
   useEffect(() => {
-    const t = requestAnimationFrame(() => setMounted(true));
-    return () => cancelAnimationFrame(t);
+    try {
+      const seen = typeof window !== "undefined" ? window.sessionStorage.getItem("beta_banner_seen_v1") : "1";
+      setBetaHidden(!!seen);
+    } catch { setBetaHidden(true); }
   }, []);
 
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch("/api/gifts/list");
+        const j = await r.json();
+        if (!j.ok) throw new Error(j.error || "Ошибка загрузки");
+        setItems(j.items);
+      } catch (e: any) {
+        setError(e?.message || "Ошибка сети");
+      } finally { setLoading(false); }
+    })();
+  }, []);
+
+  const buy = async (gift: Gift) => {
+    setBuying(true);
+    try {
+      const r = await fetch("/api/gifts/buy", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-init-data":
+            (typeof window !== "undefined"
+              ? (window as any)?.Telegram?.WebApp?.initData
+              : "") || "",
+        },
+        body: JSON.stringify({ gift_id: gift.id }),
+      });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.error || "Ошибка");
+      window.open(j.tme_link, "_blank");
+      alert("Покупка успешна! Ссылка на подарок открыта.");
+    } catch (e: any) {
+      alert("Не удалось купить: " + (e?.message || "Ошибка"));
+    } finally { setBuying(false); }
+  };
+
+  const fmtRUB = (n: number) => new Intl.NumberFormat("ru-RU").format(Math.round(n)) + " ₽";
+  const priceOf = (g: Gift) => g.value_rub ?? g.price_rub ?? 0;
+
+  // общий стиль карточного фона
+  const cardBg = (g: Gift): React.CSSProperties => {
+    if (g.preview_svg) {
+      // нативный svg из Telegram
+      return {
+        backgroundImage: `url("${g.preview_svg}")`,
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+        backgroundRepeat: "no-repeat",
+      };
+    }
+    // запасной plain-фон
+    return { background: "linear-gradient(180deg,#e9eef8,#7a8da8)" };
+  };
+
   return (
-    <Layout title="Обмен">
-      {/* Фикс на весь экран без скролла */}
-      <div className="relative min-h-[100dvh] overflow-hidden bg-gradient-to-br from-[#e6f0ff] via-[#dbeafe] to-[#e0f2fe]">
-        {/* декор */}
-        <div aria-hidden className="absolute inset-0 overflow-hidden">
-          <div className="absolute inset-0 bg-[radial-gradient(1200px_700px_at_0%_0%,rgba(59,130,246,0.28)_0%,transparent_60%),radial-gradient(1000px_600px_at_100%_100%,rgba(2,132,199,0.26)_0%,transparent_60%)]" />
-          <div className="absolute -top-24 left-1/4 h-[28rem] w-[28rem] rounded-full bg-white/25 blur-3xl" />
-          <div className="absolute -bottom-24 right-1/5 h-[26rem] w-[26rem] rounded-full bg-white/20 blur-3xl" />
-          <div className="absolute inset-0 opacity-[0.12] [background-image:linear-gradient(0deg,rgba(255,255,255,.7)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.7)_1px,transparent_1px)] [background-size:40px_40px]" />
-        </div>
+    <Layout title="Обмен — подарки Telegram">
+      <div className="max-w-4xl mx-auto p-4 sm:p-6">
 
-        {/* Контент */}
-        <div className="relative flex min-h-[100dvh] items-center justify-center p-4">
-          <div className="relative w-full max-w-[680px]">
-            <div
-              aria-hidden
-              className="pointer-events-none absolute -inset-0.5 rounded-[34px] blur-2xl opacity-80"
-              style={{
-                background:
-                  "conic-gradient(from 180deg at 50% 50%, rgba(59,130,246,.35), rgba(2,132,199,.35), rgba(191,219,254,.35), rgba(59,130,246,.35))",
+        {!betaHidden && (
+          <div className="mb-5 rounded-2xl border border-yellow-200 bg-yellow-50 text-yellow-900 p-4">
+            <div className="font-semibold mb-1">Бета-версия магазина</div>
+            <div className="text-sm opacity-90">Функции ещё дорабатываются — возможны баги и задержки загрузки превью.</div>
+            <button
+              onClick={() => {
+                try { window.sessionStorage.setItem("beta_banner_seen_v1", "1"); } catch {}
+                setBetaHidden(true);
               }}
-            />
-            <div
-              className={[
-                "relative rounded-[28px] bg-white/70 backdrop-blur-xl p-7 sm:p-10 ring-1 ring-white/50 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.25)]",
-                "transition-all duration-700 ease-out",
-                mounted ? "opacity-100 translate-y-0 scale-100" : "opacity-0 translate-y-2 scale-[0.99]",
-              ].join(" ")}
+              className="mt-3 inline-flex items-center rounded-xl bg-yellow-500 text-white px-4 py-2 hover:bg-yellow-600"
             >
-              <div className="mx-auto h-12 w-12 rounded-2xl bg-blue-100/90 flex items-center justify-center text-xl shadow-inner">🚧</div>
-              <h1 className="mt-4 text-3xl sm:text-4xl font-semibold tracking-tight bg-gradient-to-r from-slate-900 via-slate-800 to-slate-600 bg-clip-text text-transparent">
-                Раздел в разработке
-              </h1>
-              <p className="mt-2 text-[15px] leading-7 text-slate-700">
-                Мы бережно готовим этот раздел. Совсем скоро здесь появится красивый и удобный обмен ⭐ звёзд и подарков.
-              </p>
+              Окей
+            </button>
+          </div>
+        )}
 
-              <div className="mt-5 inline-flex items-center gap-2 rounded-full bg-slate-900 px-4 py-2 text-xs font-medium text-white shadow-sm">
-                ✨ Обновление скоро
-              </div>
+        {loading && <div className="text-slate-500">Загрузка…</div>}
+        {error && <div className="text-red-600 bg-red-50 border border-red-200 rounded-xl p-3">{error}</div>}
 
-              {/* Дорожная карта (пример) */}
-              <div className="mt-8">
-                <div className="text-xs font-medium text-slate-500">Дорожная карта</div>
-                <div className="mt-3 space-y-3">
-                  {[
-                    { title: "Обмен на TON", p: 70 },
-                    { title: "Обмен на другие криптовалюты", p: 50 },
-                    { title: "Обмен на рубли (обратный)", p: 40 },
-                  ].map((it) => (
-                    <div key={it.title}>
-                      <div className="flex items-center justify-between text-sm text-slate-700">
-                        <span>{it.title}</span>
-                        <span className="font-medium text-slate-900">{it.p}%</span>
-                      </div>
-                      <div className="mt-1 h-2 w-full rounded-full bg-slate-200 overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-gradient-to-r from-sky-400 to-blue-500"
-                          style={{ width: `${it.p}%` }}
-                        />
-                      </div>
-                    </div>
-                  ))}
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+          {items.map((g) => (
+            <button
+              key={g.id}
+              onClick={() => setSelected(g)}
+              className="group rounded-3xl bg-white ring-1 ring-slate-200 hover:ring-slate-300 transition p-3 text-left shadow-sm hover:shadow-md"
+            >
+              <div className="relative aspect-square rounded-2xl overflow-hidden" style={cardBg(g)}>
+                {/* модель/анимка поверх фона */}
+                <div className="absolute inset-0 p-6 flex items-center justify-center">
+                  <StickerPlayer
+                    tgsUrl={g.tgs_url || undefined}
+                    poster={g.image_url || undefined}
+                    className="w-full h-full"
+                  />
                 </div>
               </div>
 
-              <p className="mt-6 text-xs text-slate-500">
-                Вопросы и идеи — напишите администратору{" "}
-                <a
-                  href="https://t.me/ReelWalet"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline decoration-slate-300 hover:decoration-slate-500"
-                >
-                  @ReelWalet
-                </a>
-              </p>
+              <div className="mt-2">
+                <div className="text-sm font-medium line-clamp-1">{g.title}</div>
+                <div className="text-[11px] text-slate-500">#{g.number}</div>
+                <div className="text-sm font-semibold mt-1 text-emerald-600">{fmtRUB(priceOf(g))}</div>
+              </div>
+            </button>
+          ))}
+        </div>
+
+        {/* Модалка товара */}
+        {selected && (
+          <div className="fixed inset-0 bg-black/30 flex items-end sm:items-center justify-center z-50" onClick={() => setSelected(null)}>
+            <div className="bg-white rounded-3xl w-full sm:w-[560px] p-4 sm:p-6 m-2" onClick={(e) => e.stopPropagation()}>
+              <div className="flex gap-4 items-start">
+                <div className="relative w-24 h-24 rounded-2xl overflow-hidden shrink-0" style={cardBg(selected)}>
+                  <div className="absolute inset-0 p-2 flex items-center justify-center">
+                    <StickerPlayer
+                      tgsUrl={selected.tgs_url || undefined}
+                      poster={selected.image_url || undefined}
+                      className="w-full h-full"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex-1">
+                  <div className="font-semibold text-[17px] leading-5">{selected.title}</div>
+                  <a href={selected.tme_link} target="_blank" className="text-xs text-blue-600 underline">Открыть в Telegram</a>
+                  <div className="text-2xl font-bold mt-1">{fmtRUB(priceOf(selected))}</div>
+
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-[12px]">
+                    {selected.model && (
+                      <div className="rounded-xl bg-slate-50 p-2">
+                        <div className="text-slate-500">Модель</div>
+                        <div className="font-medium">{selected.model}</div>
+                      </div>
+                    )}
+                    {selected.backdrop && (
+                      <div className="rounded-xl bg-slate-50 p-2">
+                        <div className="text-slate-500">Фон</div>
+                        <div className="font-medium">{selected.backdrop}</div>
+                      </div>
+                    )}
+                    {selected.pattern && (
+                      <div className="rounded-xl bg-slate-50 p-2">
+                        <div className="text-slate-500">Узор</div>
+                        <div className="font-medium">{selected.pattern}</div>
+                      </div>
+                    )}
+                    {(selected.amount_issued ?? null) != null && (selected.amount_total ?? null) != null && (
+                      <div className="rounded-xl bg-slate-50 p-2 col-span-2">
+                        <div className="text-slate-500">Выпущено / Всего</div>
+                        <div className="font-medium">
+                          {new Intl.NumberFormat("ru-RU").format(selected.amount_issued || 0)} /{" "}
+                          {new Intl.NumberFormat("ru-RU").format(selected.amount_total || 0)}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-5 grid grid-cols-2 gap-3">
+                <button className="h-11 rounded-xl ring-1 ring-slate-200 hover:bg-slate-50" onClick={() => setSelected(null)}>Отмена</button>
+                <button className="h-11 rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60" disabled={buying} onClick={() => buy(selected!)}>
+                  Купить
+                </button>
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
     </Layout>
   );
