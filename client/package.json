@@ -19,8 +19,7 @@
     "framer-motion": "^10.16.4",
     "html2canvas": "^1.4.1",
     "lottie-web": "^5.12.2",
-    "pako": "^2.1.0",
-    "@types/lottie-web": "^5.7.4"
+    "pako": "^2.1.0"
   },
   "devDependencies": {
     "typescript": "^5.3.3",
