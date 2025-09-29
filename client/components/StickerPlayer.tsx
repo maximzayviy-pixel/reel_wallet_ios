@@ -1,55 +1,63 @@
-// components/StickerPlayer.tsx — рендер .tgs (Lottie)
+// components/StickerPlayer.tsx — проигрыватель Telegram .tgs (Lottie) с фолбэком на постер
 import { useEffect, useRef } from "react";
-import type { AnimationItem } from "lottie-web";
+import lottie, { AnimationItem } from "lottie-web";
+import { inflate } from "pako";
 
 type Props = {
-  tgsUrl: string;
-  poster?: string;
+  tgsUrl?: string | null;
+  poster?: string | null;
   className?: string;
 };
 
 export default function StickerPlayer({ tgsUrl, poster, className }: Props) {
   const ref = useRef<HTMLDivElement>(null);
+  const animRef = useRef<AnimationItem | null>(null);
+
   useEffect(() => {
-    let anim: AnimationItem | null = null;
-    let aborted = false;
+    let cancelled = false;
+    if (!tgsUrl || !ref.current) return;
 
     (async () => {
-      const [{ default: lottie }, { inflate }] = await Promise.all([
-        import("lottie-web"),
-        import("pako"),
-      ]);
-      const res = await fetch(tgsUrl);
-      const buf = new Uint8Array(await res.arrayBuffer());
-      const json = JSON.parse(new TextDecoder().decode(inflate(buf)));
-
-      if (!ref.current || aborted) return;
-      anim = lottie.loadAnimation({
-        container: ref.current,
-        renderer: "svg",
-        loop: true,
-        autoplay: true,
-        animationData: json,
-      });
+      try {
+        const resp = await fetch(tgsUrl, { cache: "force-cache" });
+        const buf = await resp.arrayBuffer();
+        // tgs — это gzipped JSON
+        const json = JSON.parse(new TextDecoder().decode(inflate(new Uint8Array(buf))));
+        if (cancelled || !ref.current) return;
+        animRef.current?.destroy();
+        animRef.current = lottie.loadAnimation({
+          container: ref.current,
+          renderer: "svg",
+          loop: true,
+          autoplay: true,
+          animationData: json,
+        });
+      } catch (e) {
+        // молча падаем — ниже отрисуется постер
+        console.warn("tgs load failed", e);
+      }
     })();
 
     return () => {
-      aborted = true;
-      try { anim?.destroy(); } catch {}
+      cancelled = true;
+      animRef.current?.destroy();
+      animRef.current = null;
     };
   }, [tgsUrl]);
 
   return (
     <div className={className}>
-      {poster && (
+      {/* Канва/контейнер для анимации */}
+      <div ref={ref} className="w-full h-full" />
+      {/* Фолбэк-постер (покажется, если tgs не загрузился) */}
+      {poster ? (
         <img
           src={poster}
           alt=""
-          className="w-full h-full object-cover absolute inset-0 opacity-0"
-          aria-hidden
+          className="w-full h-full object-cover absolute inset-0 pointer-events-none select-none"
+          style={{ visibility: tgsUrl ? "hidden" : "visible" }}
         />
-      )}
-      <div ref={ref} className="w-full h-full" />
+      ) : null}
     </div>
   );
 }
