@@ -1,6 +1,11 @@
+// pages/api/admin/gifts.ts — admin CRUD + preview parser for Telegram gifts
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createClient } from "@supabase/supabase-js";
 import { requireAdmin } from "./_guard";
+
+function pick(html: string, re: RegExp) {
+  return (html.match(re)?.[1] ?? "").trim();
+}
 
 async function fetchGiftPreview(link: string) {
   const r = await fetch(link, {
@@ -13,25 +18,22 @@ async function fetchGiftPreview(link: string) {
     },
   });
   const html = await r.text();
-  const pick = (re: RegExp) => (html.match(re)?.[1] ?? "").trim();
 
-  const ogImage =
-    pick(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
-    pick(/<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i) ||
-    pick(/<meta[^>]+property=["']og:image:secure_url["'][^>]+content=["']([^"']+)["']/i);
+  const image =
+    pick(html, /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
+    pick(html, /<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i);
 
-  const ogVideo =
-    pick(/<meta[^>]+property=["']og:video["'][^>]+content=["']([^"']+)["']/i) ||
-    pick(/<meta[^>]+property=["']og:video:url["'][^>]+content=["']([^"']+)["']/i) ||
-    pick(/<meta[^>]+name=["']twitter:player["'][^>]+content=["']([^"']+)["']/i);
+  const video =
+    pick(html, /<meta[^>]+property=["']og:video["'][^>]+content=["']([^"']+)["']/i) ||
+    pick(html, /<meta[^>]+property=["']og:video:url["'][^>]+content=["']([^"']+)["']/i) ||
+    pick(html, /<video[^>]+src=["']([^"']+)["']/i) ||
+    pick(html, /<source[^>]+src=["']([^"']+)["'][^>]*>/i);
 
-  const videoTag = pick(/<video[^>]+src=["']([^"']+)["']/i);
-  const sourceTag = pick(/<source[^>]+src=["']([^"']+)["'][^>]*>/i);
+  // Telegram animated sticker (.tgs)
+  const tgs =
+    pick(html, /<source[^>]+type=["']application\/x-tgsticker["'][^>]+srcset=["']([^"']+)["']/i) || "";
 
-  const image_url = ogImage || "";
-  const anim_url = ogVideo || videoTag || sourceTag || "";
-
-  return { image_url: image_url || null, anim_url: anim_url || null };
+  return { image_url: image || null, anim_url: video || null, tgs_url: tgs || null };
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -47,30 +49,35 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   if (req.method === "POST") {
-    const { link, price_rub, image_url, anim_url, enabled = true, title } = req.body || {};
+    const { link, price_rub, image_url, anim_url, tgs_url, enabled = true, title } = req.body || {};
     if (!link || !price_rub) return res.status(400).json({ ok: false, error: "link_and_price_required" });
 
     const m = String(link).match(/nft\/([A-Za-z0-9_]+)-(\d+)/);
     if (!m) return res.status(400).json({ ok: false, error: "invalid_link" });
-    const slug = m[1], number = Number(m[2]);
+    const slug = m[1];
+    const number = Number(m[2]);
 
-    let parsed = { image_url: image_url || null, anim_url: anim_url || null };
-    if (!image_url || !anim_url) {
+    let parsed = { image_url: image_url || null, anim_url: anim_url || null, tgs_url: tgs_url || null };
+    if (!image_url || !anim_url || !tgs_url) {
       try {
         const got = await fetchGiftPreview(link);
         parsed.image_url = parsed.image_url || got.image_url;
-        parsed.anim_url = parsed.anim_url || got.anim_url;
+        parsed.anim_url  = parsed.anim_url  || got.anim_url;
+        parsed.tgs_url   = parsed.tgs_url   || got.tgs_url;
       } catch {}
     }
 
     const { error } = await supabase.from("gifts").insert({
       title: title || slug,
-      slug, number,
+      slug,
+      number,
       price_rub,
       image_url: parsed.image_url,
       anim_url: parsed.anim_url,
+      tgs_url: parsed.tgs_url,
       enabled,
     });
+
     if (error) return res.status(500).json({ ok: false, error: error.message });
     return res.json({ ok: true });
   }
