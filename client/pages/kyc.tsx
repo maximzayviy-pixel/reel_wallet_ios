@@ -1,112 +1,143 @@
-// client/pages/kyc.tsx
 "use client";
+import { useEffect, useRef, useState } from "react";
 import Layout from "../components/Layout";
-import useBanRedirect from "../lib/useBanRedirect";
-import { useState } from "react";
 
 function dataUrlToBlob(dataUrl: string): Blob {
   const [header, base64] = dataUrl.split(",");
-  const contentType = /data:(.*?);/.exec(header)?.[1] || "image/jpeg";
-  const byteChars = atob(base64);
-  const bytes = new Uint8Array(byteChars.length);
-  for (let i = 0; i < byteChars.length; i++) bytes[i] = byteChars.charCodeAt(i);
-  return new Blob([bytes], { type: contentType });
+  const type = /data:(.*?);/.exec(header)?.[1] || "image/jpeg";
+  const bin = atob(base64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type });
 }
-
-async function uploadToUploadcare(file: Blob | string): Promise<string> {
-  const pub = process.env.NEXT_PUBLIC_UPLOADCARE_PUBLIC_KEY;
-  if (!pub) throw new Error("Uploadcare public key is missing (NEXT_PUBLIC_UPLOADCARE_PUBLIC_KEY)");
-
+async function uploadcarePut(file: Blob, filename = "file.bin"): Promise<string> {
+  const pub = process.env.NEXT_PUBLIC_UPLOADCARE_PUBLIC_KEY!;
   const form = new FormData();
   form.append("UPLOADCARE_PUB_KEY", pub);
   form.append("UPLOADCARE_STORE", "1");
-
-  let endpoint = "https://upload.uploadcare.com/base/";
-  if (typeof file === "string") {
-    endpoint = "https://upload.uploadcare.com/base64/";
-    const idx = file.indexOf(",");
-    const payload = idx >= 0 ? file.slice(idx + 1) : file;
-    form.append("file", payload);
-  } else {
-    form.append("file", file, "kyc.jpg");
-  }
-
-  const res = await fetch(endpoint, { method: "POST", body: form });
-  const json = await res.json();
-  if (!res.ok || !json?.file) throw new Error(json?.error || "Uploadcare error");
-  return `https://ucarecdn.com/${json.file}/`;
+  form.append("file", file, filename);
+  const r = await fetch("https://upload.uploadcare.com/base/", { method: "POST", body: form });
+  const j = await r.json();
+  return `https://ucarecdn.com/${j.file}/`;
 }
 
-export default function KYC() {
-  useBanRedirect();
+export default function KYCPage() {
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [stream, setStream] = useState<MediaStream | null>(null);
 
-  const [faceDataUrl, setFaceDataUrl] = useState<string | null>(null);
-  const [docDataUrl, setDocDataUrl] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [result, setResult] = useState<{ok:boolean; msg:string} | null>(null);
+  const [face, setFace] = useState<string | null>(null);
+  const [doc, setDoc] = useState<string | null>(null);
+  const [liveBlob, setLiveBlob] = useState<Blob | null>(null);
 
-  const onFile = (setter: (v:string)=>void) => (e: any) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setter(String(reader.result));
-    reader.readAsDataURL(file);
+  useEffect(() => {
+    return () => {
+      stream?.getTracks().forEach((t) => t.stop());
+    };
+  }, [stream]);
+
+  const startCamera = async (facing: "user" | "environment") => {
+    stream?.getTracks().forEach((t) => t.stop());
+    const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing }, audio: false });
+    setStream(s);
+    if (videoRef.current) {
+      videoRef.current.srcObject = s;
+      await videoRef.current.play();
+    }
+  };
+
+  const snap = async (target: "face" | "doc") => {
+    const v = videoRef.current;
+    if (!v) return;
+    const c = document.createElement("canvas");
+    c.width = target === "face" ? 480 : 720;
+    c.height = 480;
+    const ctx = c.getContext("2d")!;
+    ctx.drawImage(v, 0, 0, c.width, c.height);
+    const url = c.toDataURL("image/jpeg", 0.9);
+    if (target === "face") setFace(url);
+    if (target === "doc") setDoc(url);
+    setStep(target === "face" ? 2 : 3);
+  };
+
+  const startLive = async () => {
+    const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+    setStream(s);
+    if (videoRef.current) {
+      videoRef.current.srcObject = s;
+      await videoRef.current.play();
+    }
+    const rec = new MediaRecorder(s, { mimeType: "video/webm" });
+    const chunks: BlobPart[] = [];
+    rec.ondataavailable = (e) => e.data && chunks.push(e.data);
+    rec.onstop = () => {
+      setLiveBlob(new Blob(chunks, { type: "video/webm" }));
+      setStep(4);
+    };
+    rec.start();
+    setTimeout(() => rec.stop(), 5000);
   };
 
   const submit = async () => {
-    if (!faceDataUrl || !docDataUrl) return;
-    setSubmitting(true);
-    setResult(null);
-    try {
-      const face_url = await uploadToUploadcare(dataUrlToBlob(faceDataUrl));
-      const doc_url = await uploadToUploadcare(dataUrlToBlob(docDataUrl));
-      const r = await fetch("/api/kyc-submit", {
-        method: "POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({ face_url, doc_url })
-      });
-      const j = await r.json();
-      if (!j?.ok) throw new Error(j?.error || "Не удалось отправить заявку");
-      setResult({ ok:true, msg:"Заявка на верификацию отправлена. Ожидайте решения админа." });
-      setFaceDataUrl(null); setDocDataUrl(null);
-    } catch (e:any) {
-      setResult({ ok:false, msg: e.message || "Ошибка отправки" });
-    } finally {
-      setSubmitting(false);
-    }
+    if (!face || !doc) return;
+    const face_url = await uploadcarePut(dataUrlToBlob(face), "face.jpg");
+    const doc_url = await uploadcarePut(dataUrlToBlob(doc), "doc.jpg");
+    let liveness_url: string | undefined;
+    if (liveBlob) liveness_url = await uploadcarePut(liveBlob, "live.webm");
+
+    const tg = (window as any).Telegram?.WebApp;
+    const user = tg?.initDataUnsafe?.user;
+    await fetch(`/api/kyc-submit?tg_id=${user.id}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ face_url, doc_url, liveness_url }),
+    });
+    alert("Заявка отправлена, жди подтверждения.");
   };
 
   return (
     <Layout title="KYC">
       <div className="max-w-md mx-auto p-4 space-y-4">
-        <h1 className="text-xl font-semibold">Верификация личности (KYC)</h1>
-        <div className="space-y-3">
-          <label className="block">
-            <div className="text-sm mb-1">Фото лица</div>
-            <input type="file" accept="image/*" onChange={onFile(v=>setFaceDataUrl(v))}/>
-          </label>
-          {faceDataUrl && <img src={faceDataUrl} alt="face" className="w-full rounded-xl" />}
-
-          <label className="block">
-            <div className="text-sm mb-1">Фото документа (паспорт/ID)</div>
-            <input type="file" accept="image/*" onChange={onFile(v=>setDocDataUrl(v))}/>
-          </label>
-          {docDataUrl && <img src={docDataUrl} alt="doc" className="w-full rounded-xl" />}
-
-          <button
-            disabled={!faceDataUrl || !docDataUrl || submitting}
-            onClick={submit}
-            className="w-full rounded-xl bg-indigo-600 disabled:bg-slate-300 text-white py-2"
-          >
-            Отправить на проверку
-          </button>
-
-          {result && (
-            <div className={`text-sm ${result.ok ? "text-green-700" : "text-red-600"}`}>
-              {result.msg}
+        {step <= 2 && (
+          <div>
+            <video ref={videoRef} muted playsInline className={step === 1 ? "w-48 h-48 rounded-full mx-auto" : "w-full rounded-xl"} />
+            <div className="mt-4 flex justify-center">
+              <button
+                className="px-4 py-2 bg-indigo-600 text-white rounded-xl"
+                onClick={() => {
+                  if (step === 1) {
+                    startCamera("user");
+                    snap("face");
+                  } else {
+                    startCamera("environment");
+                    snap("doc");
+                  }
+                }}
+              >
+                {step === 1 ? "Сфотографировать лицо" : "Сфотографировать документ"}
+              </button>
             </div>
-          )}
-        </div>
+          </div>
+        )}
+
+        {step === 3 && (
+          <div className="text-center">
+            <video ref={videoRef} muted playsInline className="w-full rounded-xl" />
+            <button onClick={startLive} className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-xl">
+              Записать видео (5с)
+            </button>
+          </div>
+        )}
+
+        {step === 4 && (
+          <div className="space-y-3">
+            <img src={face!} alt="face" className="w-32 h-32 rounded-full mx-auto" />
+            <img src={doc!} alt="doc" className="w-full rounded-xl" />
+            <button onClick={submit} className="w-full px-4 py-2 bg-emerald-600 text-white rounded-xl">
+              Отправить заявку
+            </button>
+          </div>
+        )}
       </div>
     </Layout>
   );
