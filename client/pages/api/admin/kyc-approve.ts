@@ -1,12 +1,12 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { supabaseAdmin } from "../../../lib/supabaseAdmin";
-import { ensureIsAdmin } from "../../../lib/admin";
+import { ensureIsAdminApi } from "../../../lib/admin";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") return res.status(405).end();
 
   try {
-    const admin = await ensureIsAdmin(req);
+    const admin = await ensureIsAdminApi(req);
 
     const { id } = req.body || {};
     if (!id) return res.status(400).json({ ok: false, error: "id required" });
