@@ -6,7 +6,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.method !== "POST") return res.status(405).end();
 
   try {
-    const admin = await ensureIsAdminApi(req);
+    await ensureIsAdminApi(req);
 
     const { id } = req.body || {};
     if (!id) return res.status(400).json({ ok: false, error: "id required" });
@@ -21,8 +21,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (error) return res.status(400).json({ ok: false, error: error.message });
 
     await supabaseAdmin.from("users").update({ is_verified: true }).eq("tg_id", data.tg_id);
-
-    res.status(200).json({ ok: true, admin });
+    res.status(200).json({ ok: true });
   } catch (e: any) {
     res.status(e.statusCode || 500).json({ ok: false, error: e.message || "Server error" });
   }
