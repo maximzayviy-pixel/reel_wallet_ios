@@ -1,15 +1,40 @@
-// app/profile/page.tsx  (или pages/profile.tsx)
-// Профиль с мягкой KYC и выводом ⭐. Tailwind UI.
-// Требуемые ENV: NEXT_PUBLIC_UPLOADCARE_PUBLIC_KEY
+// pages/profile.tsx
+// Мягкая интеграция KYC и вывода ⭐, без изменения твоих текущих API.
+// Требуется только NEXT_PUBLIC_UPLOADCARE_PUBLIC_KEY для Uploadcare.
 
 "use client";
+
 import { useEffect, useMemo, useState } from "react";
+import useBanRedirect from "../lib/useBanRedirect";
+import Layout from "../components/Layout";
+import Skeleton from "../components/Skeleton";
+import { createClient } from "@supabase/supabase-js";
 import Link from "next/link";
 
-// ---------- Helpers ----------
-function clsx(...a: Array<string | false | undefined>) {
-  return a.filter(Boolean).join(" ");
-}
+type TGUser = {
+  id: number;
+  username?: string;
+  first_name?: string;
+  last_name?: string;
+  language_code?: string;
+  is_premium?: boolean;
+  photo_url?: string;
+};
+
+type RoleRow = { role?: string | null };
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+
+// ✅ список админов через .env (можно: NEXT_PUBLIC_ADMINS=7264453091,12345678)
+const ADMINS_ENV = (process.env.NEXT_PUBLIC_ADMINS || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+// ===== Uploadcare helpers (как в scan) =====
 function dataUrlToBlob(dataUrl: string): Blob {
   const [header, base64] = dataUrl.split(",");
   const type = /data:(.*?);/.exec(header)?.[1] || "image/jpeg";
@@ -39,16 +64,7 @@ async function uploadToUploadcare(file: Blob | string): Promise<string> {
   return `https://ucarecdn.com/${j.file}/`;
 }
 
-// ---------- Types ----------
-type UserInfo = {
-  tg_id: number;
-  username?: string | null;
-  stars?: number;
-  is_verified?: boolean;
-  kyc_status?: "none" | "pending" | "approved" | "rejected";
-};
-
-// Для демо-списка банков СБП — подправь под свои
+// ===== Справочник банков СБП (можешь подправить) =====
 const SBP_BANKS = [
   { code: "sber", name: "Сбербанк" },
   { code: "tcs", name: "Тинькофф" },
@@ -56,63 +72,179 @@ const SBP_BANKS = [
   { code: "alpha", name: "Альфа-Банк" },
 ];
 
-export default function ProfilePage() {
-  const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState<UserInfo | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+export default function Profile() {
+  // If the user is banned, redirect to the banned page
+  useBanRedirect();
 
-  // --- soft KYC local state ---
+  const [u, setU] = useState<TGUser | null>(null);
+  const [status, setStatus] = useState("Открой через Telegram Mini App, чтобы связать профиль.");
+  const [isVerified, setIsVerified] = useState<boolean>(false);
+  const [loadingVerify, setLoadingVerify] = useState(false); // оставлен, но кнопки нет
+  const [role, setRole] = useState<string>("user");
+
+  // промокод
+  const [code, setCode] = useState("");
+  const [promoState, setPromoState] = useState<null | { ok: boolean; msg: string }>(null);
+  const disabledRedeem = useMemo(() => !code.trim() || !u?.id, [code, u?.id]);
+
+  // ===== Soft KYC state =====
   const [face, setFace] = useState<string | null>(null);
   const [doc, setDoc] = useState<string | null>(null);
   const [kycSending, setKycSending] = useState(false);
   const [kycMsg, setKycMsg] = useState<string | null>(null);
 
-  // --- withdraw local state ---
+  // ===== Withdraw state =====
   const [amount, setAmount] = useState<number>(0);
   const [bank, setBank] = useState<string>(SBP_BANKS[0].code);
-  const [account, setAccount] = useState<string>(""); // телефон СБП
+  const [account, setAccount] = useState<string>("");
   const [wdSending, setWdSending] = useState(false);
   const [wdMsg, setWdMsg] = useState<string | null>(null);
 
-  // Получаем tg_id из твоей мини-аппы, если ты уже кладёшь его глобально
-  const tgIdFromWindow = useMemo<number | null>(() => {
-    const v =
-      (typeof window !== "undefined" &&
-        (window as any).__TG_INIT_DATA_USER__?.id) ||
-      null;
-    return v ? Number(v) : null;
+  useEffect(() => {
+    let tries = 0;
+    let usersChannel: ReturnType<typeof supabase.channel> | null = null;
+
+    const t = setInterval(() => {
+      tries++;
+      try {
+        const tg = (window as any)?.Telegram?.WebApp;
+        const user: TGUser | undefined = tg?.initDataUnsafe?.user;
+        if (user?.id) {
+          clearInterval(t);
+          setU(user);
+          setStatus("Связано с Telegram");
+
+          // ⚡️ мгновенный оверрайд из ENV — чтобы админка открывалась сразу
+          const isEnvAdmin = ADMINS_ENV.includes(String(user.id));
+          if (isEnvAdmin) setRole("admin");
+
+          // апсерт в БД
+          fetch("/api/auth-upsert", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              tg_id: user.id,
+              username: user.username,
+              first_name: user.first_name,
+              last_name: user.last_name,
+            }),
+          }).catch(() => {});
+
+          // флаг верификации — оставляем ТВОЙ эндпоинт
+          fetch("/api/verify-status", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ tg_id: user.id }),
+          })
+            .then((r) => r.json())
+            .then((j) => setIsVerified(!!j?.verified))
+            .catch(() => {});
+
+          // роль из БД
+          supabase
+            .from("users")
+            .select("role")
+            .eq("tg_id", user.id)
+            .maybeSingle()
+            .then(({ data, error }) => {
+              if (!error) {
+                const dbRole = (data as RoleRow)?.role || "user";
+                setRole(isEnvAdmin ? "admin" : dbRole);
+              } else {
+                setRole(isEnvAdmin ? "admin" : "user");
+              }
+            });
+
+          // realtime по роли
+          usersChannel = supabase
+            .channel(`users-role-${user.id}`)
+            .on(
+              "postgres_changes",
+              { event: "*", schema: "public", table: "users", filter: `tg_id=eq.${user.id}` },
+              (payload: any) => {
+                const newRole = payload?.new?.role || payload?.old?.role || "user";
+                const isEnvAdminNow = ADMINS_ENV.includes(String(user.id));
+                setRole(isEnvAdminNow ? "admin" : newRole);
+              }
+            )
+            .subscribe();
+        } else if (tries > 60) {
+          clearInterval(t);
+        }
+      } catch {}
+    }, 100);
+
+    return () => {
+      clearInterval(t);
+      if (usersChannel) supabase.removeChannel(usersChannel);
+    };
   }, []);
 
-  // Подтягиваем user-info
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setLoading(true);
-      setErr(null);
-      try {
-        // Если tg_id не прокинут через window, бек может достать его из сессии/токена
-        const url = tgIdFromWindow
-          ? `/api/user-info?tg_id=${tgIdFromWindow}`
-          : `/api/user-info`;
-        const r = await fetch(url);
-        if (!r.ok) throw new Error(`user-info: ${r.status}`);
-        const j = await r.json();
-        if (!cancelled) setUser(j as UserInfo);
-      } catch (e: any) {
-        if (!cancelled) setErr(e?.message || "Не удалось загрузить профиль");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [tgIdFromWindow]);
+  const copyId = async () => {
+    if (!u?.id) return;
+    try {
+      await navigator.clipboard.writeText(String(u.id));
+    } catch {}
+  };
 
-  // ---------- Handlers ----------
-  const selectFile =
-    (setter: (v: string) => void) =>
+  const openSupport = () => {
+    const tg = (window as any)?.Telegram?.WebApp;
+    const url = "https://t.me/ReelWalet";
+    if (tg?.openTelegramLink) tg.openTelegramLink(url);
+    else window.open(url, "_blank");
+  };
+
+  // buyVerify оставлен, но кнопка скрыта согласно задаче
+  const buyVerify = async () => {
+    if (!u?.id) return;
+    setLoadingVerify(true);
+    try {
+      const tg = (window as any)?.Telegram?.WebApp;
+      const r = await fetch("/api/buy-verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tg_id: u.id }),
+      });
+      const j = await r.json();
+      if (!j.ok) throw new Error(j.error || "INVOICE_FAILED");
+      const link = j.link || j.invoice_link || j.url;
+      if (!link) throw new Error("INVOICE_LINK_EMPTY");
+      if (tg?.openInvoice) tg.openInvoice(link);
+      else if (tg?.openTelegramLink) tg.openTelegramLink(link);
+      else window.open(link, "_blank");
+    } catch (e: any) {
+      alert(e?.message || "Ошибка");
+    } finally {
+      setLoadingVerify(false);
+    }
+  };
+
+  const redeem = async () => {
+    if (!u?.id || !code.trim()) return;
+    setPromoState(null);
+    try {
+      const r = await fetch("/api/redeem-promocode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tg_id: u.id, code: code.trim() }),
+      });
+      const j = await r.json();
+      if (!j?.ok) {
+        setPromoState({ ok: false, msg: j?.error || "Промокод не принят" });
+      } else {
+        const bonus = j.bonus ?? j.amount ?? "";
+        const cur = j.currency ?? (j.isStars ? "⭐" : "₽");
+        setPromoState({ ok: true, msg: `Зачислено: ${bonus} ${cur}` });
+        setCode("");
+      }
+    } catch {
+      setPromoState({ ok: false, msg: "Ошибка сети" });
+    }
+  };
+
+  // ===== Soft KYC handlers =====
+  const onPick =
+    (setter: (s: string) => void) =>
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const f = e.target.files?.[0];
       if (!f) return;
@@ -122,25 +254,22 @@ export default function ProfilePage() {
     };
 
   const submitKYC = async () => {
-    if (!face || !doc) {
-      setKycMsg("Загрузи фото лица и документа.");
-      return;
-    }
+    if (!u?.id) return setKycMsg("Не определён Telegram-профиль.");
+    if (!face || !doc) return setKycMsg("Загрузи фото лица и документа.");
     setKycSending(true);
     setKycMsg(null);
     try {
       const face_url = await uploadToUploadcare(dataUrlToBlob(face));
       const doc_url = await uploadToUploadcare(dataUrlToBlob(doc));
-      const r = await fetch("/api/kyc-submit", {
+      const r = await fetch(`/api/kyc-submit?tg_id=${u.id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ face_url, doc_url }),
       });
       const j = await r.json();
       if (!j?.ok) throw new Error(j?.error || "Не удалось отправить заявку");
-      setKycMsg("Заявка на верификацию отправлена. Обычно это недолго.");
-      // мягко переключаем статус на pending, чтобы сразу показать пользователю
-      setUser((u) => (u ? { ...u, kyc_status: "pending" } : u));
+      setKycMsg("Заявка отправлена. Проверим в ближайшее время.");
+      // Мягко: UI покажет «на проверке», а кнопка вывода появится только после approve на бэке
       setFace(null);
       setDoc(null);
     } catch (e: any) {
@@ -150,21 +279,17 @@ export default function ProfilePage() {
     }
   };
 
+  // ===== Withdraw handler =====
   const submitWithdraw = async () => {
-    setWdMsg(null);
-    if (!user?.is_verified) {
-      setWdMsg("Доступно после подтверждения KYC.");
-      return;
-    }
+    if (!u?.id) return setWdMsg("Не определён Telegram-профиль.");
+    if (!isVerified) return setWdMsg("Доступно после подтверждения KYC.");
     if (amount <= 0) return setWdMsg("Укажи сумму в ⭐.");
     if (!account.trim()) return setWdMsg("Укажи номер телефона для СБП.");
 
-    // простая клиентская проверка баланса (на бэке всё равно проверяется)
-    if ((user.stars ?? 0) < amount) return setWdMsg("Недостаточно ⭐.");
-
     setWdSending(true);
+    setWdMsg(null);
     try {
-      const r = await fetch("/api/withdraw-create", {
+      const r = await fetch(`/api/withdraw-create?tg_id=${u.id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -175,11 +300,7 @@ export default function ProfilePage() {
       });
       const j = await r.json();
       if (!j?.ok) throw new Error(j?.error || "Не удалось создать заявку");
-      setWdMsg("Заявка на вывод отправлена. Мы уведомим, когда будет выплата.");
-      // Можно оптимистично уменьшить баланс визуально (списание фактически при approve)
-      setUser((u) =>
-        u ? { ...u, stars: Number(u.stars || 0) - Number(amount) } : u
-      );
+      setWdMsg("Заявка отправлена. Выплата после подтверждения админом.");
       setAmount(0);
       setAccount("");
     } catch (e: any) {
@@ -189,227 +310,294 @@ export default function ProfilePage() {
     }
   };
 
-  // ---------- UI ----------
-  if (loading) {
-    return (
-      <div className="max-w-3xl mx-auto p-4 animate-pulse">
-        <div className="h-8 w-40 bg-slate-200 rounded mb-4" />
-        <div className="h-24 w-full bg-slate-200 rounded mb-4" />
-        <div className="h-48 w-full bg-slate-200 rounded" />
-      </div>
-    );
-  }
-  if (err) {
-    return (
-      <div className="max-w-3xl mx-auto p-4">
-        <div className="rounded-xl bg-red-50 text-red-700 p-4">
-          Ошибка: {err}
-        </div>
-      </div>
-    );
-  }
-  const verified = !!user?.is_verified;
-  const kycStatus = user?.kyc_status || (verified ? "approved" : "none");
-
   return (
-    <div className="max-w-3xl mx-auto p-4 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Профиль</h1>
-        <Link
-          href="/"
-          className="text-sm text-slate-500 hover:text-slate-700 underline underline-offset-4"
-        >
-          На главную
-        </Link>
-      </div>
+    <Layout title="Профиль — Reel Wallet">
+      {/* лёгкий синий фон на всю высоту */}
+      <div className="min-h-[100dvh] bg-gradient-to-br from-[#f0f6ff] via-[#e7f0ff] to-[#e6f7ff]">
+        <div className="bg-gradient-to-br from-indigo-600 via-blue-600 to-cyan-500 text-white rounded-b-3xl pb-10 pt-12">
+          <div className="max-w-md mx-auto px-4">
+            <div className="flex items-center gap-4">
+              <div className="w-16 h-16 rounded-full overflow-hidden ring-2 ring-white/40 bg-white/20 flex items-center justify-center">
+                {u?.photo_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={u.photo_url} alt="avatar" className="w-full h-full object-cover" />
+                ) : (
+                  <span className="text-2xl">🙂</span>
+                )}
+              </div>
 
-      {/* Summary Card */}
-      <div className="rounded-2xl border border-slate-200 p-4 md:p-6 bg-white shadow-sm">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <div className="text-slate-500 text-sm">Пользователь</div>
-            <div className="font-medium">
-              @{user?.username || user?.tg_id || "unknown"}
-            </div>
-          </div>
-          <div className="text-right">
-            <div className="text-slate-500 text-sm">Баланс</div>
-            <div className="text-2xl font-semibold">{user?.stars ?? 0} ⭐</div>
-          </div>
-        </div>
+              <div className="min-w-0">
+                {/* имя + синяя галочка при верификации */}
+                <div className="text-lg font-semibold truncate flex items-center gap-1">
+                  {u
+                    ? `${u.first_name ?? ""} ${u?.last_name ?? ""}`.trim() ||
+                      (u.username ? `@${u.username}` : "Пользователь")
+                    : <Skeleton className="h-5 w-40" />
+                  }
 
-        {/* KYC status chip */}
-        <div className="mt-4 flex items-center gap-2">
-          <span
-            className={clsx(
-              "px-2.5 py-1 rounded-full text-xs font-medium",
-              kycStatus === "approved" && "bg-emerald-50 text-emerald-700",
-              kycStatus === "pending" && "bg-amber-50 text-amber-700",
-              (kycStatus === "none" || kycStatus === "rejected") &&
-                "bg-slate-100 text-slate-700"
-            )}
-          >
-            {kycStatus === "approved"
-              ? "KYC подтверждён"
-              : kycStatus === "pending"
-              ? "KYC на проверке"
-              : kycStatus === "rejected"
-              ? "KYC отклонён"
-              : "KYC не пройден"}
-          </span>
+                  {u && isVerified && (
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="w-4 h-4 text-sky-500 flex-shrink-0"
+                      viewBox="0 0 24 24"
+                      fill="currentColor"
+                      aria-label="Верифицирован"
+                    >
+                      <path
+                        fillRule="evenodd"
+                        d="M12 2.25a9.75 9.75 0 100 19.5 9.75 9.75 0 000-19.5zm4.03 6.97a.75.75 0 10-1.06-1.06L11 12.09l-1.97-1.97a.75.75 0 10-1.06 1.06l2.5 2.5c.3.3.79.3 1.06 0l4.5-4.5z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                  )}
+                </div>
 
-          {!verified && (
-            <span className="text-xs text-slate-500">
-              Пройди KYC, чтобы вывести ⭐
-            </span>
-          )}
-        </div>
-      </div>
+                <div className="text-sm opacity-90 truncate">
+                  {u ? (u.username ? `@${u.username}` : "—") : <Skeleton className="h-4 w-24 mt-1" />}
+                </div>
+              </div>
 
-      {/* Soft KYC Block (inline) */}
-      {!verified && (
-        <div className="rounded-2xl border border-slate-200 p-4 md:p-6 bg-white shadow-sm space-y-4">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-lg font-semibold">Верификация личности</h2>
-              <p className="text-sm text-slate-600 mt-1">
-                Мягкая проверка: загрузи фото лица и документа (паспорт/ID).
-                Файлы попадут в Uploadcare, заявка улетит админу.
-              </p>
-            </div>
-          </div>
-
-          <div className="grid md:grid-cols-2 gap-4">
-            <label className="block">
-              <div className="text-sm mb-1">Фото лица</div>
-              <input type="file" accept="image/*" onChange={selectFile(setFace)} />
-              {face && (
-                <img
-                  src={face}
-                  alt="face"
-                  className="w-full mt-2 rounded-xl ring-1 ring-slate-200"
-                />
-              )}
-            </label>
-
-            <label className="block">
-              <div className="text-sm mb-1">Фото документа</div>
-              <input type="file" accept="image/*" onChange={selectFile(setDoc)} />
-              {doc && (
-                <img
-                  src={doc}
-                  alt="doc"
-                  className="w-full mt-2 rounded-xl ring-1 ring-slate-200"
-                />
-              )}
-            </label>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <button
-              onClick={submitKYC}
-              disabled={kycSending || !face || !doc}
-              className={clsx(
-                "px-4 py-2 rounded-xl text-white",
-                kycSending || !face || !doc
-                  ? "bg-slate-300"
-                  : "bg-indigo-600 hover:bg-indigo-700"
-              )}
-            >
-              Отправить на проверку
-            </button>
-            {kycMsg && <div className="text-sm text-slate-700">{kycMsg}</div>}
-          </div>
-
-          {/* Подсказка по статусу «pending» */}
-          {kycStatus === "pending" && (
-            <div className="text-xs text-slate-500">
-              Мы сообщим, как только админ проверит документы.
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Withdraw (visible when verified) */}
-      {verified && (
-        <div className="rounded-2xl border border-slate-200 p-4 md:p-6 bg-white shadow-sm space-y-4">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-lg font-semibold">Вывод ⭐ по СБП</h2>
-              <p className="text-sm text-slate-600 mt-1">
-                Заполни сумму, выбери банк и укажи номер телефона для СБП.
-                Заявка улетит админу — после подтверждения средства придут на счёт.
-              </p>
-            </div>
-          </div>
-
-          <div className="grid md:grid-cols-3 gap-4">
-            <div className="space-y-1">
-              <label className="text-sm text-slate-600">Сумма (⭐)</label>
-              <input
-                type="number"
-                min={1}
-                className="w-full rounded-xl ring-1 ring-slate-200 px-3 py-2"
-                value={amount || ""}
-                onChange={(e) => setAmount(Number(e.target.value))}
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-sm text-slate-600">Банк СБП</label>
-              <select
-                className="w-full rounded-xl ring-1 ring-slate-200 px-3 py-2"
-                value={bank}
-                onChange={(e) => setBank(e.target.value)}
+              <button
+                onClick={openSupport}
+                className="ml-auto text-[11px] bg-white/20 hover:bg-white/30 transition rounded-full px-3 py-1"
               >
-                {SBP_BANKS.map((b) => (
-                  <option key={b.code} value={b.code}>
-                    {b.name}
-                  </option>
-                ))}
-              </select>
+                Поддержка
+              </button>
             </div>
 
-            <div className="space-y-1">
-              <label className="text-sm text-slate-600">Номер для СБП</label>
-              <input
-                type="tel"
-                placeholder="+7XXXXXXXXXX"
-                className="w-full rounded-xl ring-1 ring-slate-200 px-3 py-2"
-                value={account}
-                onChange={(e) => setAccount(e.target.value)}
-              />
+            <div className="mt-4 text-xs opacity-90">
+              {u ? "Связано с Telegram" : status}
             </div>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <button
-              onClick={submitWithdraw}
-              disabled={wdSending}
-              className={clsx(
-                "px-4 py-2 rounded-xl text-white",
-                wdSending ? "bg-slate-300" : "bg-emerald-600 hover:bg-emerald-700"
-              )}
-            >
-              Отправить заявку
-            </button>
-            {wdMsg && <div className="text-sm text-slate-700">{wdMsg}</div>}
-          </div>
-
-          <div className="text-xs text-slate-500">
-            Списание ⭐ происходит после подтверждения заявки админом.
           </div>
         </div>
-      )}
 
-      {/* Help / debug */}
-      <div className="text-xs text-slate-400">
-        Если статус не обновился — проверь, что бек эндпоинты настроены:
-        <code className="ml-1">/api/user-info</code>,{" "}
-        <code>/api/kyc-submit</code>, <code>/api/withdraw-create</code> и
-        переменные окружения Uploadcare.
+        <div className="max-w-md mx-auto px-4 -mt-6 space-y-6 relative z-10 pb-8">
+          <div className="bg-white rounded-2xl p-4 shadow-sm">
+            <div className="flex items-center justify-between mb-3">
+              <div className="font-semibold">Данные профиля</div>
+              {u && (
+                isVerified ? (
+                  <span className="inline-flex items-center gap-2 text-sm text-emerald-600">
+                    <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-sky-500 text-white text-[11px] font-bold">✓</span>
+                    Верифицирован
+                  </span>
+                ) : (
+                  <span className="text-xs px-2 py-1 rounded-full bg-slate-100 text-slate-600 ring-1 ring-slate-200">
+                    не верифицирован
+                  </span>
+                )
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="bg-slate-50 rounded-xl p-3">
+                <div className="text-[11px] text-slate-500">ID</div>
+                <div className="font-medium">{u ? u.id : <Skeleton className="h-4 w-20" />}</div>
+                <button onClick={copyId} className="mt-2 text-[11px] text-slate-600 underline">
+                  Скопировать
+                </button>
+              </div>
+
+              <div className="bg-slate-50 rounded-xl p-3">
+                <div className="text-[11px] text-slate-500">Username</div>
+                <div className="font-medium">{u ? (u.username ? `@${u.username}` : "—") : <Skeleton className="h-4 w-24" />}</div>
+              </div>
+
+              <div className="bg-slate-50 rounded-xl p-3">
+                <div className="text-[11px] text-slate-500">Имя</div>
+                <div className="font-medium">{u ? (u.first_name || "—") : <Skeleton className="h-4 w-24" />}</div>
+              </div>
+
+              <div className="bg-slate-50 rounded-xl p-3">
+                <div className="text-[11px] text-slate-500">Фамилия</div>
+                <div className="font-medium">{u ? (u.last_name || "—") : <Skeleton className="h-4 w-24" />}</div>
+              </div>
+
+              <div className="bg-slate-50 rounded-xl p-3">
+                <div className="text-[11px] text-slate-500">Язык</div>
+                <div className="font-medium">{u ? (u.language_code || "—") : <Skeleton className="h-4 w-16" />}</div>
+              </div>
+
+              <div className="bg-slate-50 rounded-xl p-3">
+                <div className="text-[11px] text-slate-500">Premium</div>
+                <div className="font-medium">{u ? (u.is_premium ? "Telegram Premium ✓" : "—") : <Skeleton className="h-4 w-24" />}</div>
+              </div>
+            </div>
+
+            {/* Промокод */}
+            <div className="mt-4">
+              <div className="text-[11px] text-slate-500 mb-1">Промокод</div>
+              <div className="flex gap-2">
+                <input
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.toUpperCase())}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !disabledRedeem) redeem();
+                  }}
+                  placeholder="Введите код"
+                  className="flex-1 rounded-xl ring-1 ring-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-slate-300"
+                />
+                <button
+                  onClick={redeem}
+                  disabled={disabledRedeem}
+                  className="rounded-xl bg-slate-900 text-white text-sm px-4 py-2 disabled:opacity-60"
+                >
+                  Активировать
+                </button>
+              </div>
+              {promoState && (
+                <div className={`mt-2 text-xs ${promoState.ok ? "text-emerald-600" : "text-rose-600"}`}>
+                  {promoState.msg}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ===== Инлайн KYC (видно, если не верифицирован) ===== */}
+          {u && !isVerified && (
+            <div className="bg-white rounded-2xl p-4 shadow-sm space-y-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="font-semibold">Верификация личности</div>
+                  <p className="text-sm text-slate-600 mt-1">
+                    Мягкая проверка: загрузи фото лица и документа (паспорт/ID). Файлы попадут в Uploadcare,
+                    заявка улетит админу.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <label className="block">
+                  <div className="text-sm mb-1">Фото лица</div>
+                  <input type="file" accept="image/*" onChange={(e) => onPick(setFace)(e)} />
+                  {face && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={face} alt="face" className="w-full mt-2 rounded-xl ring-1 ring-slate-200" />
+                  )}
+                </label>
+
+                <label className="block">
+                  <div className="text-sm mb-1">Фото документа</div>
+                  <input type="file" accept="image/*" onChange={(e) => onPick(setDoc)(e)} />
+                  {doc && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={doc} alt="doc" className="w-full mt-2 rounded-xl ring-1 ring-slate-200" />
+                  )}
+                </label>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={submitKYC}
+                  disabled={kycSending || !face || !doc}
+                  className={`px-4 py-2 rounded-xl text-white ${
+                    kycSending || !face || !doc ? "bg-slate-300" : "bg-indigo-600 hover:bg-indigo-700"
+                  }`}
+                >
+                  Отправить на проверку
+                </button>
+                {kycMsg && <div className="text-sm text-slate-700">{kycMsg}</div>}
+              </div>
+
+              <div className="text-xs text-slate-500">Мы сообщим, как только админ проверит документы.</div>
+            </div>
+          )}
+
+          {/* ===== Вывод ⭐ по СБП (видно, если верифицирован) ===== */}
+          {u && isVerified && (
+            <div className="bg-white rounded-2xl p-4 shadow-sm space-y-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <div className="font-semibold">Вывод ⭐ по СБП</div>
+                  <p className="text-sm text-slate-600 mt-1">
+                    Укажи сумму, выбери банк и номер телефона для СБП. Заявка отправится админу.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid md:grid-cols-3 gap-4">
+                <div className="space-y-1">
+                  <label className="text-sm text-slate-600">Сумма (⭐)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    className="w-full rounded-xl ring-1 ring-slate-200 px-3 py-2"
+                    value={amount || ""}
+                    onChange={(e) => setAmount(Number(e.target.value))}
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-sm text-slate-600">Банк СБП</label>
+                  <select
+                    className="w-full rounded-xl ring-1 ring-slate-200 px-3 py-2"
+                    value={bank}
+                    onChange={(e) => setBank(e.target.value)}
+                  >
+                    {SBP_BANKS.map((b) => (
+                      <option key={b.code} value={b.code}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-sm text-slate-600">Номер телефона</label>
+                  <input
+                    type="tel"
+                    placeholder="+7XXXXXXXXXX"
+                    className="w-full rounded-xl ring-1 ring-slate-200 px-3 py-2"
+                    value={account}
+                    onChange={(e) => setAccount(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={submitWithdraw}
+                  disabled={wdSending}
+                  className={`px-4 py-2 rounded-xl text-white ${
+                    wdSending ? "bg-slate-300" : "bg-emerald-600 hover:bg-emerald-700"
+                  }`}
+                >
+                  Отправить заявку
+                </button>
+                {wdMsg && <div className="text-sm text-slate-700">{wdMsg}</div>}
+              </div>
+
+              <div className="text-xs text-slate-500">Списание ⭐ произойдёт после подтверждения админом.</div>
+            </div>
+          )}
+
+          {/* Админ-блок */}
+          {role === "admin" && (
+            <div className="bg-white rounded-2xl p-4 shadow-sm">
+              <div className="flex items-center justify-between">
+                <div className="font-semibold">Админка</div>
+                <span className="text-xs px-2 py-1 rounded-full bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200">
+                  role: admin
+                </span>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                <Link href="/admin" className="rounded-xl ring-1 ring-slate-200 px-3 py-2 text-center hover:bg-slate-50">
+                  Открыть админку
+                </Link>
+                <Link href="/history" className="rounded-xl ring-1 ring-slate-200 px-3 py-2 text-center hover:bg-slate-50">
+                  История заявок
+                </Link>
+              </div>
+            </div>
+          )}
+
+          {!u && (
+            <div className="text-[12px] text-slate-500 text-center pb-6">
+              Запусти мини-приложение из Telegram, чтобы увидеть данные профиля.
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </Layout>
   );
 }
