@@ -2,13 +2,14 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { createClient } from "@supabase/supabase-js";
 import { requireAdmin } from "./_guard";
 
-// Парсим превью из t.me/nft/...: og:image / og:video / <video src> / <source src>
 async function fetchGiftPreview(link: string) {
   const r = await fetch(link, {
     redirect: "follow",
     headers: {
       "User-Agent":
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36",
+      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "en;q=0.9,ru;q=0.8",
     },
   });
   const html = await r.text();
@@ -30,10 +31,7 @@ async function fetchGiftPreview(link: string) {
   const image_url = ogImage || "";
   const anim_url = ogVideo || videoTag || sourceTag || "";
 
-  return {
-    image_url: image_url || null,
-    anim_url: anim_url || null,
-  };
+  return { image_url: image_url || null, anim_url: anim_url || null };
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -54,8 +52,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const m = String(link).match(/nft\/([A-Za-z0-9_]+)-(\d+)/);
     if (!m) return res.status(400).json({ ok: false, error: "invalid_link" });
-    const slug = m[1];
-    const number = Number(m[2]);
+    const slug = m[1], number = Number(m[2]);
 
     let parsed = { image_url: image_url || null, anim_url: anim_url || null };
     if (!image_url || !anim_url) {
@@ -63,15 +60,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const got = await fetchGiftPreview(link);
         parsed.image_url = parsed.image_url || got.image_url;
         parsed.anim_url = parsed.anim_url || got.anim_url;
-      } catch {
-        // оставим без превью
-      }
+      } catch {}
     }
 
     const { error } = await supabase.from("gifts").insert({
       title: title || slug,
-      slug,
-      number,
+      slug, number,
       price_rub,
       image_url: parsed.image_url,
       anim_url: parsed.anim_url,
