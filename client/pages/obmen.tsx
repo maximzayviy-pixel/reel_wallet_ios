@@ -1,12 +1,9 @@
-// pages/obmen.tsx — Marketplace for NFT gifts (beta)
+// pages/obmen.tsx — Marketplace for Telegram Collectible Gifts (beta)
 import { useEffect, useState } from "react";
 import Layout from "../components/Layout";
+import StickerPlayer from "../components/StickerPlayer";
 
-declare global {
-  interface Window {
-    Telegram: any;
-  }
-}
+declare global { interface Window { Telegram: any } }
 
 type Gift = {
   id: number;
@@ -17,6 +14,7 @@ type Gift = {
   price_rub: number;
   image_url?: string | null;
   anim_url?: string | null;
+  tgs_url?: string | null;
 };
 
 function CardSkeleton() {
@@ -38,10 +36,9 @@ export default function Obmen() {
   const [buying, setBuying] = useState(false);
   const [showBeta, setShowBeta] = useState(false);
 
-  // показать бета-модалку 1 раз
+  // beta modal once
   useEffect(() => {
-    const flag = localStorage.getItem("gift_shop_beta_shown");
-    if (!flag) setShowBeta(true);
+    if (!localStorage.getItem("gift_shop_beta_shown")) setShowBeta(true);
   }, []);
   const closeBeta = () => {
     localStorage.setItem("gift_shop_beta_shown", "1");
@@ -57,7 +54,7 @@ export default function Obmen() {
     } catch {}
   }, []);
 
-  // загрузка каталога
+  // load gifts
   useEffect(() => {
     (async () => {
       try {
@@ -80,7 +77,6 @@ export default function Obmen() {
         window?.Telegram?.WebApp?.initData ||
         localStorage.getItem("tg_init_data") ||
         "";
-
       const r = await fetch("/api/gifts/buy", {
         method: "POST",
         headers: {
@@ -102,22 +98,17 @@ export default function Obmen() {
   return (
     <Layout title="Обмен — маркетплейс подарков">
       <div className="max-w-2xl mx-auto p-4 sm:p-6">
-        {/* Бета-модалка */}
+
+        {/* Beta notice */}
         {showBeta && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
             <div className="w-[92%] max-w-md rounded-2xl bg-white p-5 shadow-xl">
               <div className="text-lg font-semibold">Магазин в бете</div>
               <p className="mt-2 text-sm text-slate-600">
-                Это ранняя версия витрины коллекционных подарков. Возможны баги и
-                задержки.
+                Это ранняя версия витрины коллекционных подарков Telegram. Возможны баги и задержки.
               </p>
               <div className="mt-4 flex justify-end">
-                <button
-                  onClick={closeBeta}
-                  className="h-10 px-4 rounded-xl bg-blue-600 text-white"
-                >
-                  Окей
-                </button>
+                <button onClick={closeBeta} className="h-10 px-4 rounded-xl bg-blue-600 text-white">Окей</button>
               </div>
             </div>
           </div>
@@ -127,14 +118,11 @@ export default function Obmen() {
 
         {loading ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <CardSkeleton key={i} />
-            ))}
+            {Array.from({ length: 6 }).map((_, i) => <CardSkeleton key={i} />)}
           </div>
         ) : items.length === 0 ? (
           <div className="text-center text-slate-500 py-16">
-            Пока нет активных подарков.<br />
-            Загляните позже.
+            Пока нет активных подарков. Загляните позже.
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
@@ -146,7 +134,9 @@ export default function Obmen() {
               >
                 <div className="aspect-square rounded-2xl bg-slate-50 overflow-hidden flex items-center justify-center relative">
                   <div className="absolute inset-0 pointer-events-none opacity-60 mix-blend-multiply bg-[radial-gradient(60%_60%_at_50%_40%,#93c5fd_10%,transparent_60%)]" />
-                  {g.anim_url ? (
+                  {g.tgs_url ? (
+                    <StickerPlayer tgsUrl={g.tgs_url} poster={g.image_url || null} className="relative z-10 w-full h-full" />
+                  ) : g.anim_url ? (
                     <video
                       src={g.anim_url}
                       autoPlay
@@ -157,11 +147,7 @@ export default function Obmen() {
                       className="relative z-10 w-full h-full object-cover"
                     />
                   ) : g.image_url ? (
-                    <img
-                      src={g.image_url}
-                      alt={g.title}
-                      className="relative z-10 w-full h-full object-cover"
-                    />
+                    <img src={g.image_url} alt={g.title} className="relative z-10 w-full h-full object-cover" />
                   ) : (
                     <span className="relative z-10 text-5xl">🎁</span>
                   )}
@@ -178,20 +164,16 @@ export default function Obmen() {
           </div>
         )}
 
-        {/* Модалка карточки */}
+        {/* Modal */}
         {selected && (
-          <div
-            className="fixed inset-0 bg-black/30 flex items-end sm:items-center justify-center z-50"
-            onClick={() => setSelected(null)}
-          >
-            <div
-              className="bg-white rounded-2xl w-full sm:w-[440px] p-4 m-2 shadow-xl"
-              onClick={(e) => e.stopPropagation()}
-            >
+          <div className="fixed inset-0 bg-black/30 flex items-end sm:items-center justify-center z-50" onClick={() => setSelected(null)}>
+            <div className="bg-white rounded-2xl w-full sm:w-[440px] p-4 m-2 shadow-xl" onClick={(e) => e.stopPropagation()}>
               <div className="flex gap-3">
                 <div className="w-28 h-28 rounded-xl bg-slate-50 overflow-hidden flex items-center justify-center relative">
                   <div className="absolute inset-0 pointer-events-none opacity-60 mix-blend-multiply bg-[radial-gradient(60%_60%_at_50%_40%,#93c5fd_10%,transparent_60%)]" />
-                  {selected.anim_url ? (
+                  {selected.tgs_url ? (
+                    <StickerPlayer tgsUrl={selected.tgs_url} poster={selected.image_url || null} className="relative z-10 w-full h-full" />
+                  ) : selected.anim_url ? (
                     <video
                       src={selected.anim_url}
                       autoPlay
@@ -202,10 +184,7 @@ export default function Obmen() {
                       className="relative z-10 w-full h-full object-cover"
                     />
                   ) : selected.image_url ? (
-                    <img
-                      src={selected.image_url}
-                      className="relative z-10 w-full h-full object-cover"
-                    />
+                    <img src={selected.image_url} className="relative z-10 w-full h-full object-cover" />
                   ) : (
                     <span className="relative z-10 text-4xl">🎁</span>
                   )}
@@ -213,12 +192,7 @@ export default function Obmen() {
                 <div className="flex-1">
                   <div className="font-semibold">{selected.title}</div>
                   <div className="text-xs text-slate-500 mb-2">
-                    <a
-                      className="underline"
-                      href={selected.tme_link}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
+                    <a className="underline" href={selected.tme_link} target="_blank" rel="noreferrer">
                       Открыть в Telegram
                     </a>
                   </div>
@@ -226,17 +200,8 @@ export default function Obmen() {
                 </div>
               </div>
               <div className="mt-4 grid grid-cols-2 gap-3">
-                <button
-                  className="h-11 rounded-xl ring-1 ring-slate-200"
-                  onClick={() => setSelected(null)}
-                >
-                  Отмена
-                </button>
-                <button
-                  className="h-11 rounded-xl bg-blue-600 text-white disabled:opacity-60"
-                  disabled={buying}
-                  onClick={() => buy(selected!)}
-                >
+                <button className="h-11 rounded-xl ring-1 ring-slate-200" onClick={() => setSelected(null)}>Отмена</button>
+                <button className="h-11 rounded-xl bg-blue-600 text-white disabled:opacity-60" disabled={buying} onClick={() => buy(selected!)}>
                   Купить
                 </button>
               </div>
