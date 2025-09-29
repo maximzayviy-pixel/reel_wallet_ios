@@ -39,6 +39,17 @@ export default function Roulette() {
   const { tgId, initData } = useTg();
   const [agreed, setAgreed] = useState(false);
   const [agreeConfirmed, setAgreeConfirmed] = useState(false);
+
+  // persist one-time agreement
+  useEffect(()=>{
+    try{
+      if (typeof window !== 'undefined'){
+        const v = window.localStorage.getItem('roulette_agreed');
+        if (v === '1') setAgreeConfirmed(true);
+      }
+    }catch{}
+  },[]);
+
   const [balance, setBalance] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Prize | null>(null);
@@ -118,7 +129,7 @@ export default function Roulette() {
 
       await controls.start({
         x: targetX,
-        transition: { duration: 3.2, ease: [0.12, 0.52, 0.04, 1] },
+        transition: { duration: 3.6, ease: [0.12, 0.6, 0.04, 1] },
       });
 
       setResult(clientPrize);
@@ -150,7 +161,7 @@ export default function Roulette() {
             </label>
             <button
               className={`mt-3 h-10 w-full rounded-xl ${agreed ? "bg-blue-600 text-white" : "bg-slate-200 text-slate-500"} disabled:opacity-60`}
-              onClick={() => setAgreeConfirmed(true)} disabled={!agreed}
+              onClick={() => { setAgreeConfirmed(true); try{ window.localStorage.setItem('roulette_agreed','1'); }catch{} }} disabled={!agreed}
             >
               Ознакомился
             </button>
@@ -159,18 +170,19 @@ export default function Roulette() {
 
         {/* Wheel */}
         <div className="mt-4">
-          <div className="overflow-hidden rounded-2xl ring-1 ring-slate-200 relative">
+          <div className="overflow-hidden rounded-2xl ring-1 ring-slate-200 relative bg-white">
             <motion.div ref={trackRef} className="flex gap-3 p-3" animate={controls} initial={{ x: 0 }}>
               {track.map((p, i) => (
-                <div key={i} data-card className="min-w-[140px] max-w-[140px] h-32 flex items-center justify-center rounded-2xl bg-gradient-to-br from-amber-50 to-amber-100 shadow-sm ring-1 ring-amber-200 rotate-[1.5deg]">
+                <div key={i} data-card className="min-w-[160px] max-w-[160px] h-36 flex items-center justify-center rounded-2xl bg-gradient-to-br from-amber-50 via-yellow-50 to-amber-100 shadow-md ring-1 ring-amber-300 relative overflow-hidden">
+                  <span className="pointer-events-none absolute inset-0 opacity-40 bg-[radial-gradient(ellipse_at_top_left,_var(--tw-gradient-stops))] from-white/60 via-transparent to-transparent translate-x-[-20%]" />
                   {p.kind === "stars" ? (
                     <div className="text-center">
-                      <div className="text-2xl font-extrabold tracking-wide">{p.label} ⭐</div>
+                      <div className="text-3xl font-black tracking-wide drop-shadow-sm">{p.label} ⭐</div>
                       <div className="text-xs text-slate-500 mt-1">изменение баланса</div>
                     </div>
                   ) : (
                     <div className="text-center">
-                      <img src={(p as any).image} alt="NFT" className="w-12 h-12 rounded-lg mx-auto object-cover" />
+                      <img src={(p as any).image} alt="NFT" className="w-14 h-14 rounded-xl mx-auto object-cover ring-1 ring-amber-300 shadow-sm" />
                       <div className="text-xs mt-1">Plush Pepe NFT</div>
                     </div>
                   )}
@@ -178,7 +190,7 @@ export default function Roulette() {
               ))}
             </motion.div>
             {/* indicator */}
-            <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-0.5 bg-blue-500/70 pointer-events-none" />
+            <div className="absolute -top-2 left-1/2 -translate-x-1/2 w-0 h-0 border-l-8 border-r-8 border-b-8 border-l-transparent border-r-transparent border-b-blue-600 drop-shadow" />
           </div>
 
           {/* Controls */}
@@ -294,6 +306,44 @@ function PrizeList() {
           <div key={i} className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2 ring-1 ring-slate-200">
             <div className="font-medium">{it.label}</div>
             <div className="text-xs text-slate-500">{it.note}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PrizeList() {
+  const items = [
+    { label: "+3", kind: "stars", note: "часто" },
+    { label: "+5", kind: "stars", note: "часто" },
+    { label: "+10", kind: "stars", note: "нормально" },
+    { label: "+15", kind: "stars", note: "нормально" },
+    { label: "+50", kind: "stars", note: "редко" },
+    { label: "+100", kind: "stars", note: "редко" },
+    { label: "+1000", kind: "stars", note: "очень редко" },
+    { label: "Plush Pepe NFT", kind: "nft", note: "ультра-редко", image: "https://i.imgur.com/BmoA5Ui.jpeg" },
+  ];
+  return (
+    <div className="mt-6 rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 p-4">
+      <h3 className="text-base font-semibold">Какие призы можно получить</h3>
+      <div className="mt-3 grid grid-cols-2 gap-3">
+        {items.map((it, i) => (
+          <div key={i} className="flex items-center gap-3 rounded-2xl bg-gradient-to-br from-slate-50 to-slate-100 px-3 py-3 ring-1 ring-slate-200">
+            <div className="w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center ring-1 ring-slate-200 bg-white">
+              {it.kind === "nft" ? (
+                <img src={it.image!} alt="NFT" className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-lg font-extrabold">⭐</span>
+              )}
+            </div>
+            <div className="flex-1">
+              <div className="font-semibold">{it.kind==="stars" ? `${it.label} ⭐` : it.label}</div>
+              <div className="text-xs text-slate-500">{it.note}</div>
+            </div>
+            <span className="text-[10px] uppercase tracking-wide px-2 py-1 rounded-full bg-amber-100 text-amber-800 ring-1 ring-amber-200">
+              {it.note}
+            </span>
           </div>
         ))}
       </div>
