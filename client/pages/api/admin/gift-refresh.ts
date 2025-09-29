@@ -27,10 +27,13 @@ function numbersFrom(text: string) {
   return arr.map(x => Number(x)).filter(n => Number.isFinite(n));
 }
 
-/** универсальный разбор таблички характеристик */
+/** универсальный разбор таблички характеристик (без флага s) */
 function parseStats(html: string) {
   const pairs: Array<[string, string]> = [];
-  const re = /<div[^>]*class=["'][^"']*tgme_gift_stats_name[^"']*["'][^>]*>(.*?)<\/div>\s*<div[^>]*class=["'][^"']*tgme_gift_stats_value[^"']*["'][^>]*>(.*?)<\/div>/gsi;
+  const re = new RegExp(
+    '<div[^>]*class=["\'][^"\']*tgme_gift_stats_name[^"\']*["\'][^>]*>([\\s\\S]*?)<\\/div>\\s*<div[^>]*class=["\'][^"\']*tgme_gift_stats_value[^"\']*["\'][^>]*>([\\s\\S]*?)<\\/div>',
+    "gi"
+  );
   let m: RegExpExecArray | null;
   while ((m = re.exec(html))) {
     const name = textClean(m[1]).toLowerCase();
@@ -53,18 +56,13 @@ function parseStats(html: string) {
       const nums = numbersFrom(val);
       if (nums.length >= 1) amount_total = nums[0];
       if (nums.length >= 2) amount_issued = nums[1];
-      // если в тексте есть "выпущено/issued" и одно число — считаем это issued
-      if (nums.length === 1 && /(выпущено|issued)/i.test(val)) {
-        amount_issued = nums[0];
-      }
+      if (nums.length === 1 && /(выпущено|issued)/i.test(val)) amount_issued = nums[0];
     } else if (/^(ценность|value)$/.test(name) || /RUB/i.test(val)) {
-      // иногда "Value" стоит как name, иногда как value со словом RUB
       const n = toNumber((val.match(/([\d\s.,]+)\s*RUB/i) || [])[1] ?? val);
       if (n != null) value_rub = n;
     }
   }
 
-  // запасной парс «Ценность ~ … RUB» из всего HTML (на случай другой вёрстки)
   if (value_rub == null) {
     const vRaw =
       take(html, /Ценность[^~]*~\s*([\d\s.,]+)\s*RUB/i) ||
