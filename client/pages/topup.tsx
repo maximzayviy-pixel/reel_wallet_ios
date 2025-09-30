@@ -79,111 +79,109 @@ export default function TopUp() {
   };
 
   return (
-    <Layout title="Пополнить баланс">
-      <div className="max-w-md mx-auto px-4 pt-8 space-y-6">
-        {/* Stars top-up */}
-        <div className="bg-white rounded-2xl p-5 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div className="font-semibold">Пополнить звёздами Telegram</div>
-            <div className="text-xs text-slate-500">Курс: 2 ⭐ = 1 ₽</div>
-          </div>
+  <Layout title="Пополнить баланс">
+    <div className="max-w-md mx-auto px-4 pt-8 space-y-6">
+      {/* Stars top-up */}
+      <div className="bg-white rounded-2xl p-5 shadow-sm">
+        <div className="flex items-center justify-between">
+          <div className="font-semibold">Пополнить звёздами Telegram</div>
+          <div className="text-xs text-slate-500">Курс: 2 ⭐ = 1 ₽</div>
+        </div>
 
-          {/* Input */}
-          <div className="mt-3">
-            <label className="text-[11px] text-slate-500">Количество ⭐</label>
-            <div className="mt-1 flex gap-2">
-              <div className="relative flex-1">
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min={1}
-                  value={starsAmount}
-                  onChange={(e) => setStarsAmount(e.target.value)}
-                  placeholder="Например, 200"
-                  className="w-full rounded-xl ring-1 ring-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-slate-300 pr-12"
-                />
-                <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-500">
-                  ⭐
-                </div>
+        {/* Input */}
+        <div className="mt-3">
+          <label className="text-[11px] text-slate-500">Количество ⭐</label>
+          <div className="mt-1 flex gap-2">
+            <div className="relative flex-1">
+              <input
+                type="number"
+                inputMode="numeric"
+                min={1}
+                value={starsAmount}
+                onChange={(e) => setStarsAmount(e.target.value)}
+                placeholder="Например, 200"
+                className="w-full rounded-xl ring-1 ring-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-slate-300 pr-12"
+              />
+              <div className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-500">
+                ⭐
               </div>
+            </div>
+            <button
+              onClick={openStarsPayment}
+              className="whitespace-nowrap bg-blue-600 hover:bg-blue-700 text-white rounded-xl px-4 py-2 text-sm"
+            >
+              Оплатить
+            </button>
+          </div>
+
+          {/* Presets */}
+          <div className="mt-2 flex flex-wrap gap-2">
+            {[100, 200, 500, 1000].map((v) => (
               <button
-                onClick={openStarsPayment}
-                className="whitespace-nowrap bg-blue-600 hover:bg-blue-700 text-white rounded-xl px-4 py-2 text-sm"
+                key={v}
+                type="button"
+                onClick={() => setPreset(v)}
+                className="text-xs rounded-full px-3 py-1 ring-1 ring-slate-200 hover:bg-slate-50"
               >
-                Оплатить
+                +{v} ⭐
               </button>
-            </div>
+            ))}
+          </div>
 
-            {/* Presets */}
-            <div className="mt-2 flex flex-wrap gap-2">
-              {[100, 200, 500, 1000].map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  onClick={() => setPreset(v)}
-                  className="text-xs rounded-full px-3 py-1 ring-1 ring-slate-200 hover:bg-slate-50"
-                >
-                  +{v} ⭐
-                </button>
-              ))}
-            </div>
+          {/* Conversion */}
+          <div className="mt-3 text-xs text-slate-600">
+            {rub > 0 ? (
+              <>К зачисленю ≈ <span className="font-medium">{rub.toFixed(2)} ₽</span></>
+            ) : (
+              <>Введи количество звёзд, чтобы увидеть сумму в ₽</>
+            )}
+          </div>
 
-            {/* Conversion */}
-            <div className="mt-3 text-xs text-slate-600">
-              {rub > 0 ? (
-                <>К зачисленю ≈ <span className="font-medium">{rub.toFixed(2)} ₽</span></>
-              ) : (
-                <>Введи количество звёзд, чтобы увидеть сумму в ₽</>
-              )}
-            </div>
+          {/* Note */}
+          <div className="mt-3 text-[11px] text-slate-500">
+            После нажатия «Оплатить» откроется чат с ботом, где нужно подтвердить
+            покупку звёзд. Баланс в приложении обновится автоматически.
+          </div>
+        </div>
+      </div>
 
-            {/* Note */}
-            <div className="mt-3 text-[11px] text-slate-500">
-              После нажатия «Оплатить» откроется чат с ботом, где нужно подтвердить
-              покупку звёзд. Баланс в приложении обновится автоматически.
-            </div>
+      {/* TON top-up (temporarily disabled, converts to stars) */}
+      <div className="bg-white rounded-2xl p-5 shadow-sm relative overflow-hidden">
+        <span className="absolute right-4 top-4 text-[10px] px-2 py-1 rounded-full bg-amber-100 text-amber-700">
+          временно отключено
+        </span>
+
+        <div className="flex items-center justify-between">
+          <div className="font-semibold">Пополнить TON</div>
+          <div className="text-xs text-slate-500">
+            1 TON = 215 ₽ → ≈ 430 ⭐
           </div>
         </div>
 
-                {/* TON top-up (temporarily disabled, converts to stars) */}
-        <div className="bg-white rounded-2xl p-5 shadow-sm relative overflow-hidden">
-          <span className="absolute right-4 top-4 text-[10px] px-2 py-1 rounded-full bg-amber-100 text-amber-700">
-            временно отключено
-          </span>
+        <div className="mt-3 space-y-2 text-slate-600">
+          <p className="text-xs">
+            Сейчас баланс TON недоступен, но <span className="font-medium">все входящие переводы TON
+            автоматически конвертируются в звёзды</span> по указанному курсу. Пополнение увидишь
+            в разделе «Звёзды Telegram».
+          </p>
 
-          <div className="flex items-center justify-between">
-            <div className="font-semibold">Пополнить TON</div>
-            <div className="text-xs text-slate-500">
-              1 TON = 215 ₽ → ≈ 430 ⭐
-            </div>
+          <div className="text-[11px] text-slate-500">Адрес кошелька для пополнения</div>
+          <div className="text-sm font-mono break-all bg-slate-50 rounded-xl p-3 select-all">
+            {process.env.NEXT_PUBLIC_TON_ADMIN_WALLET || 'UQDIuA63KyO5wzSlonPyRBeMn8z_B62gHLJaNt9ps-CVujG7'}
           </div>
 
-          <div className="mt-3 space-y-2 text-slate-600">
-            <p className="text-xs">
-              Сейчас баланс TON недоступен, но <span className="font-medium">все входящие переводы TON
-              автоматически конвертируются в звёзды</span> по указанному курсу. Пополнение увидишь
-              в разделе «Звёзды Telegram».
-            </p>
+          <div className="text-[11px] text-slate-500">
+            При отправке перевода укажи в поле <span className="font-medium">Memo</span> свой Telegram ID.
+            {tgId && (
+              <> Твой ID: <span className="font-medium">{tgId}</span></>
+            )}
+          </div>
 
-            <div className="text-[11px] text-slate-500">Адрес кошелька для пополнения</div>
-            <div className="text-sm font-mono break-all bg-slate-50 rounded-xl p-3 select-all">
-              {process.env.NEXT_PUBLIC_TON_ADMIN_WALLET || 'UQDIuA63KyO5wzSlonPyRBeMn8z_B62gHLJaNt9ps-CVujG7'}
-            </div>
-
-            <div className="text-[11px] text-slate-500">
-              При отправке перевода укажи в поле <span className="font-medium">Memo</span> свой Telegram ID.
-              {tgId && (
-                <>
-                  {' '}Твой ID: <span className="font-medium">{tgId}</span>
-                </>
-              )}
-            </div>
-
-            <div className="text-[11px] text-slate-500">
-              После поступления TON в течение 5–7 минут бот зачислит <span className="font-medium">эквивалент в ⭐</span> на твой баланс.
-            </div>
+          <div className="text-[11px] text-slate-500">
+            После поступления TON в течение 5–7 минут бот зачислит <span className="font-medium">эквивалент в ⭐</span> на твой баланс.
           </div>
         </div>
-    </Layout>
-  );
-}
+      </div>
+    </div> {/* ← вот этот закрывающий div отсутствовал */}
+  </Layout>
+);
