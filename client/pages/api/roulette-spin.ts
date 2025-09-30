@@ -4,144 +4,151 @@ import { createClient } from "@supabase/supabase-js";
 
 const COST = 15;
 
-// Шансы/призы (тот же набор, что в UI)
-const PRIZES = [
-  { label: "+3 ⭐", delta: 3,  weight: 30 },
-  { label: "+5 ⭐", delta: 5,  weight: 24 },
-  { label: "+10 ⭐", delta: 10, weight: 18 },
-  { label: "+15 ⭐", delta: 15, weight: 12 },
-  { label: "+50 ⭐", delta: 50, weight: 8 },
-  { label: "+100 ⭐", delta: 100, weight: 5.5 },
-  { label: "+1000 ⭐", delta: 1000, weight: 2.4 },
-  { label: "Plush Pepe NFT", delta: 0, weight: 0.1, kind: "NFT" as const },
+// Если у тебя другая таблица истории — переопредели через ENV
+const LEDGER_TABLE = process.env.LEDGER_TABLE_NAME || "ledger";
+const LEDGER_TG_FIELD = process.env.LEDGER_TG_FIELD_NAME || "tg_id";
+
+// Тот же набор призов, что в UI
+const PRIZES: Array<
+  | { kind: "stars"; label: string; value: number; weight: number }
+  | { kind: "nft"; label: string; image: string; weight: number }
+> = [
+  { kind: "stars", label: "+3", value: 3, weight: 30 },
+  { kind: "stars", label: "+5", value: 5, weight: 24 },
+  { kind: "stars", label: "+10", value: 10, weight: 18 },
+  { kind: "stars", label: "+15", value: 15, weight: 12 },
+  { kind: "stars", label: "+50", value: 50, weight: 8 },
+  { kind: "stars", label: "+100", value: 100, weight: 5.5 },
+  { kind: "stars", label: "+1000", value: 1000, weight: 2.4 },
+  { kind: "nft", label: "Plush Pepe NFT", image: "https://i.imgur.com/BmoA5Ui.jpeg", weight: 0.1 },
 ];
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY! // server-only
-);
+function pickPrize() {
+  const total = PRIZES.reduce((s, p) => s + p.weight, 0);
+  let r = Math.random() * total;
+  for (const p of PRIZES) {
+    r -= p.weight;
+    if (r <= 0) return p;
+  }
+  return PRIZES[0];
+}
 
-type Ok =
-  | {
-      ok: true;
-      code: "SPIN_OK";
-      result: {
-        prizeLabel: string;
-        prizeDelta: number;
-        kind?: "NFT";
-        newBalance: number;
-      };
-    };
+function readTgId(req: NextApiRequest) {
+  const initData = (req.headers["x-init-data"] as string) || (req.headers["x-telegram-init-data"] as string) || "";
+  const headerTg = (req.headers["x-tg-id"] as string) || "";
+  const bodyVal = (req.body && (req.body.tg_id ?? req.body.tgId)) as string | number | undefined;
+  const bodyTg = bodyVal != null && String(bodyVal).trim() !== "" ? Number(bodyVal) : 0;
 
-type Err = { ok: false; code: string; message: string };
+  let tg_id = headerTg ? Number(headerTg) : bodyTg;
+  try {
+    if (!tg_id && initData) {
+      const enc = encodeURIComponent(initData);
+      const m = /user=%7B%22id%22%3A(\d+)/.exec(enc);
+      if (m) tg_id = Number(m[1]);
+    }
+  } catch {}
+  return tg_id;
+}
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse<Ok | Err>) {
-  if (req.method !== "POST") {
-    return res.status(405).json({ ok: false, code: "METHOD_NOT_ALLOWED", message: "POST only" });
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method !== "POST") return res.status(405).json({ ok: false, error: "METHOD_NOT_ALLOWED" });
+
+  const tg_id = readTgId(req);
+  if (!tg_id || Number.isNaN(tg_id)) {
+    return res.status(400).json({ ok: false, error: "NO_TG_ID" });
   }
 
+  const supabase = createClient(
+    process.env.SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_KEY!, // service key, server-only
+    { auth: { persistSession: false } }
+  );
+
   try {
-    const tg_id = Number(req.body?.tg_id ?? req.query?.tg_id);
-    if (!tg_id || Number.isNaN(tg_id)) {
-      return res.status(400).json({ ok: false, code: "BAD_TG_ID", message: "tg_id is required" });
+    // 1) Берём баланс из той же вьюхи, что и /api/my-balance
+    const starsBefore = await getStarsFromView(supabase, tg_id);
+    if (starsBefore < COST) {
+      return res.status(400).json({ ok: false, error: "NOT_ENOUGH_STARS", balance: starsBefore, tg_id });
     }
 
-    // 1) читаем баланс (универсально: delta или amount)
-    const { data: rows, error: readErr } = await supabase
-      .from("ledger")
-      .select("delta, amount")
-      .eq("tg_id", tg_id);
+    // 2) Разыгрываем приз
+    const prize = pickPrize();
 
-    if (readErr) throw readErr;
+    // 3) Пишем две операции в историю (списание + приз) — с авто-детектом доступных колонок
+    await insertLedgerSafe(supabase, {
+      tg_id,
+      delta: -COST,
+      label: "roulette_cost",
+      meta: { game: "roulette" },
+    });
 
-    const balance = (rows ?? []).reduce((acc, r: any) => {
-      const d = typeof r.delta === "number" ? r.delta : 0;
-      const a = typeof r.amount === "number" ? r.amount : 0;
-      return acc + (d || a || 0);
-    }, 0);
-
-    if (balance < COST) {
-      return res.status(400).json({
-        ok: false,
-        code: "NOT_ENOUGH_STARS",
-        message: `Need ${COST}⭐, have ${balance}⭐`,
+    if (prize.kind === "stars") {
+      await insertLedgerSafe(supabase, {
+        tg_id,
+        delta: prize.value,
+        label: "roulette_prize",
+        meta: { label: prize.label },
+      });
+    } else {
+      // NFT — без изменения баланса, просто фиксация события
+      await insertLedgerSafe(supabase, {
+        tg_id,
+        delta: 0,
+        label: "nft_reward",
+        meta: { label: prize.label, image: (prize as any).image, game: "roulette" },
       });
     }
 
-    // 2) выбираем приз по весам
-    const prize = pickWeighted(PRIZES);
-
-    // 3) транзакция: списание COST и начисление приза
-    // supabase-js не даёт явных транзакций; используем RPC или один upsert нельзя.
-    // Решение: безопасная серверная логика — две вставки с метками и идемпотентным spin_id
-    const spinId = cryptoRandomId();
-
-    // Вставка двух строк в ledger: -COST и +PRIZE
-    // Поддерживаем и delta, и amount: пишем обе колонки, какая есть — та и засчитается.
-    const insertPayload = [
-      {
-        tg_id,
-        delta: -COST,
-        amount: -COST,
-        reason: "roulette_cost",
-        meta: { spin_id: spinId },
-      },
-      {
-        tg_id,
-        delta: prize.delta,
-        amount: prize.delta,
-        reason: prize.kind === "NFT" ? "roulette_prize_nft" : "roulette_prize_stars",
-        meta: { spin_id: spinId, label: prize.label },
-      },
-    ];
-
-    const { error: insErr } = await supabase.from("ledger").insert(insertPayload);
-    if (insErr) throw insErr;
-
-    // 4) новый баланс
-    const newBalance = balance - COST + prize.delta;
-
-    // 5) если приз — NFT, создаём запись в gifts (по желанию)
-    if (prize.kind === "NFT") {
-      await supabase.from("gifts").insert({
-        tg_id,
-        title: "Plush Pepe NFT",
-        image_url: "https://i.imgur.com/BmoA5Ui.jpeg",
-        meta: { spin_id: spinId },
-      });
-    }
+    // 4) Новый баланс — снова через ту же вьюху
+    const starsAfter = await getStarsFromView(supabase, tg_id);
 
     return res.status(200).json({
       ok: true,
-      code: "SPIN_OK",
-      result: {
-        prizeLabel: prize.label,
-        prizeDelta: prize.delta,
-        kind: prize.kind,
-        newBalance,
-      },
+      prize: prize.kind === "stars" ? { type: "stars", value: prize.value } : { type: "nft" },
+      balance: starsAfter,
+      tg_id,
     });
   } catch (e: any) {
-    return res.status(500).json({
-      ok: false,
-      code: "SPIN_FAILED",
-      message: e?.message ?? "Unknown error",
-    });
+    return res.status(500).json({ ok: false, error: "SPIN_FAILED", message: e?.message ?? "Unknown error" });
   }
 }
 
-function pickWeighted<T extends { weight: number }>(arr: T): T {
-  const total = arr.reduce((s, x) => s + x.weight, 0);
-  let r = Math.random() * total;
-  for (const item of arr) {
-    r -= item.weight;
-    if (r <= 0) return item;
-  }
-  return arr[arr.length - 1];
+/** Читает баланс звёзд из balances_by_tg (как и /api/my-balance) */
+async function getStarsFromView(supabase: any, tg_id: number): Promise<number> {
+  const { data, error } = await supabase
+    .from("balances_by_tg")
+    .select("stars")
+    .eq("tg_id", tg_id)
+    .maybeSingle();
+
+  if (error) throw error;
+  return Number(data?.stars || 0);
 }
 
-function cryptoRandomId() {
-  // Идемпотентность вставок по spin_id (для будущих UPSERT’ов)
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
-  return `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+/**
+ * Универсальная вставка в историю:
+ * - пробует { delta, type } → если нет таких колонок, пробует { amount, reason }
+ * - всегда добавляет JSON meta, если колонка поддерживается
+ */
+async function insertLedgerSafe(
+  supabase: any,
+  opts: { tg_id: number; delta: number; label: string; meta?: Record<string, any> }
+) {
+  // Вариант №1: delta + type + meta
+  const row1: Record<string, any> = { [LEDGER_TG_FIELD]: opts.tg_id, delta: opts.delta, type: opts.label, meta: opts.meta ?? {} };
+  let { error } = await supabase.from(LEDGER_TABLE).insert(row1);
+  if (!error) return;
+
+  // Вариант №2: amount + reason + meta
+  const row2: Record<string, any> = { [LEDGER_TG_FIELD]: opts.tg_id, amount: opts.delta, reason: opts.label, meta: opts.meta ?? {} };
+  ({ error } = await supabase.from(LEDGER_TABLE).insert(row2));
+  if (!error) return;
+
+  // Вариант №3: только amount (минимум)
+  const row3: Record<string, any> = { [LEDGER_TG_FIELD]: opts.tg_id, amount: opts.delta };
+  ({ error } = await supabase.from(LEDGER_TABLE).insert(row3));
+  if (!error) return;
+
+  // Если все попытки провалились — бросаем последнюю ошибку вверх
+  throw error;
 }
