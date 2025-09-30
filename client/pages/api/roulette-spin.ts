@@ -2,15 +2,13 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createClient } from "@supabase/supabase-js";
 
-type SpinOk = { ok: true; prize: number | "PLUSH_PEPE_NFT"; balance: number; tg_id: number };
-type SpinErr = { ok: false; error: string; details?: string; balance?: number; tg_id?: number };
-type SpinResp = SpinOk | SpinErr;
+type Ok = { ok: true; prize: number | "PLUSH_PEPE_NFT"; balance: number; tg_id: number };
+type Err = { ok: false; error: string; details?: string; balance?: number; tg_id?: number };
 
 const COST = 15;
 const LEDGER_TABLE = process.env.LEDGER_TABLE_NAME || "ledger";
 const LEDGER_TG_FIELD = process.env.LEDGER_TG_FIELD_NAME || "tg_id";
 
-// те же шансы, что в UI
 const PRIZES: Array<{ value: number | "PLUSH_PEPE_NFT"; weight: number }> = [
   { value: 3, weight: 30 },
   { value: 5, weight: 24 },
@@ -37,7 +35,6 @@ function readTgId(req: NextApiRequest) {
   const headerTg = (req.headers["x-tg-id"] as string) || "";
   const bodyVal = (req.body && (req.body.tg_id ?? req.body.tgId)) as string | number | undefined;
   const bodyTg = bodyVal != null && String(bodyVal).trim() !== "" ? Number(bodyVal) : 0;
-
   let tg_id = headerTg ? Number(headerTg) : bodyTg;
   try {
     if (!tg_id && initData) {
@@ -49,7 +46,7 @@ function readTgId(req: NextApiRequest) {
   return tg_id;
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse<SpinResp>) {
+export default async function handler(req: NextApiRequest, res: NextApiResponse<Ok | Err>) {
   if (req.method !== "POST") return res.status(405).json({ ok: false, error: "METHOD_NOT_ALLOWED" });
 
   const tg_id = readTgId(req);
@@ -59,10 +56,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     auth: { persistSession: false },
   }) as any;
 
-  // 1) читаем баланс из balances_by_tg — как и /api/my-balance
-  const starsBefore = await getStarsFromView(supabase, tg_id).catch((e: any) => {
-    return NaN;
-  });
+  // баланс из balances_by_tg — как в /api/my-balance
+  const starsBefore = await getStars(supabase, tg_id).catch(() => NaN);
   if (!Number.isFinite(starsBefore)) {
     return res.status(500).json({ ok: false, error: "BALANCE_QUERY_FAILED", tg_id });
   }
@@ -71,35 +66,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   }
 
   try {
-    // 2) розыгрыш и атомарная проводка (приз − 15)
     const prize = pickPrize();
     const delta = typeof prize === "number" ? prize - COST : -COST;
 
-    await insertLedgerFlexible(supabase, {
+    // ⚙️ вставка в ledger с поддержкой разных схем; всегда стараемся писать type
+    await insertLedgerSmart(supabase, {
       table: LEDGER_TABLE,
       tgField: LEDGER_TG_FIELD,
       tg_id,
       delta,
-      label: typeof prize === "number" ? "roulette_prize_stars" : "roulette_prize_nft",
+      typeValue: typeof prize === "number" ? "roulette_prize_stars" : "roulette_prize_nft",
     });
 
-    // опционально: если NFT — записать клейм (без обязательных колонок)
     if (prize === "PLUSH_PEPE_NFT") {
+      // не обязательная таблица — тихая попытка
       try {
         await supabase.from("gifts_claims").insert([
-          {
-            tg_id,
-            gift_code: "PLUSH_PEPE_NFT",
-            title: "Plush Pepe NFT",
-            image_url: "https://i.imgur.com/BmoA5Ui.jpeg",
-            status: "pending",
-          },
+          { tg_id, gift_code: "PLUSH_PEPE_NFT", title: "Plush Pepe NFT", image_url: "https://i.imgur.com/BmoA5Ui.jpeg", status: "pending" },
         ]);
       } catch {}
     }
 
-    // 3) баланс после — снова из balances_by_tg
-    const starsAfter = await getStarsFromView(supabase, tg_id).catch(() => starsBefore + delta);
+    const starsAfter = await getStars(supabase, tg_id).catch(() => starsBefore + delta);
     return res.status(200).json({ ok: true, prize, balance: starsAfter, tg_id });
   } catch (e: any) {
     return res.status(500).json({
@@ -112,46 +100,54 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   }
 }
 
-/** Читает баланс звёзд из balances_by_tg */
-async function getStarsFromView(supabase: any, tg_id: number): Promise<number> {
-  const { data, error } = await supabase
-    .from("balances_by_tg")
-    .select("stars")
-    .eq("tg_id", tg_id)
-    .maybeSingle();
+async function getStars(supabase: any, tg_id: number): Promise<number> {
+  const { data, error } = await supabase.from("balances_by_tg").select("stars").eq("tg_id", tg_id).maybeSingle();
   if (error) throw error;
   return Number(data?.stars || 0);
 }
 
 /**
- * Универсальная вставка в ledger без зависимости от meta:
- * Пробуем (в таком порядке):
- *  1) { tg, delta, type }
- *  2) { tg, delta }
- *  3) { tg, amount, reason }
- *  4) { tg, amount }
+ * Пытаемся по порядку:
+ *  A) { delta, type }         — если есть delta и NOT NULL type
+ *  B) { amount, type }        — если delta нет, но есть amount и NOT NULL type
+ *  C) { delta }               — если type-колонки нет вообще
+ *  D) { amount }              — если нет ни type, ни delta
  */
-async function insertLedgerFlexible(
+async function insertLedgerSmart(
   supabase: any,
-  opts: { table: string; tgField: string; tg_id: number; delta: number; label?: string }
+  opts: { table: string; tgField: string; tg_id: number; delta: number; typeValue: string }
 ) {
   const base = { [opts.tgField]: opts.tg_id };
 
-  // 1) delta + type
-  let { error } = await supabase.from(opts.table).insert([{ ...base, delta: opts.delta, type: opts.label ?? "roulette" }]);
+  // A) delta + type
+  let { error } = await supabase.from(opts.table).insert([{ ...base, delta: opts.delta, type: opts.typeValue }]);
   if (!error) return;
 
-  // 2) delta (минимум)
-  ({ error } = await supabase.from(opts.table).insert([{ ...base, delta: opts.delta }]));
-  if (!error) return;
+  const msg = String(error?.message || "").toLowerCase();
 
-  // 3) amount + reason
-  ({ error } = await supabase.from(opts.table).insert([{ ...base, amount: opts.delta, reason: opts.label ?? "roulette" }]));
-  if (!error) return;
+  // если ругается, что delta не существует — пробуем amount + type
+  if (msg.includes('column "delta"') || msg.includes("delta column")) {
+    ({ error } = await supabase.from(opts.table).insert([{ ...base, amount: opts.delta, type: opts.typeValue }]));
+    if (!error) return;
+  }
 
-  // 4) amount (минимум)
-  ({ error } = await supabase.from(opts.table).insert([{ ...base, amount: opts.delta }]));
-  if (!error) return;
+  // если ругается, что type не существует — пробуем без type
+  if (msg.includes('column "type"') || msg.includes("type column")) {
+    // C) delta
+    ({ error } = await supabase.from(opts.table).insert([{ ...base, delta: opts.delta }]));
+    if (!error) return;
+
+    // D) amount
+    ({ error } = await supabase.from(opts.table).insert([{ ...base, amount: opts.delta }]));
+    if (!error) return;
+  }
+
+  // Если мы сюда дошли — повторно попытаться разумным альтернативным вариантом:
+  // попробуем amount + type (если это не мы уже пробовали выше)
+  if (!msg.includes('column "type"')) {
+    ({ error } = await supabase.from(opts.table).insert([{ ...base, amount: opts.delta, type: opts.typeValue }]));
+    if (!error) return;
+  }
 
   throw new Error(error?.message || "ledger insert failed");
 }
