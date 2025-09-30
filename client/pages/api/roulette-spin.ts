@@ -56,30 +56,32 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     auth: { persistSession: false },
   }) as any;
 
-  // баланс из balances_by_tg — как в /api/my-balance
+  // баланс «как в my-balance»
   const starsBefore = await getStars(supabase, tg_id).catch(() => NaN);
-  if (!Number.isFinite(starsBefore)) {
-    return res.status(500).json({ ok: false, error: "BALANCE_QUERY_FAILED", tg_id });
-  }
-  if (starsBefore < COST) {
-    return res.status(400).json({ ok: false, error: "NOT_ENOUGH_STARS", balance: starsBefore, tg_id });
-  }
+  if (!Number.isFinite(starsBefore)) return res.status(500).json({ ok: false, error: "BALANCE_QUERY_FAILED", tg_id });
+  if (starsBefore < COST) return res.status(400).json({ ok: false, error: "NOT_ENOUGH_STARS", balance: starsBefore, tg_id });
 
   try {
     const prize = pickPrize();
     const delta = typeof prize === "number" ? prize - COST : -COST;
 
-    // ⚙️ вставка в ledger с поддержкой разных схем; всегда стараемся писать type
+    // атомарная проводка (приз − 15), с обязательными полями
     await insertLedgerSmart(supabase, {
       table: LEDGER_TABLE,
       tgField: LEDGER_TG_FIELD,
       tg_id,
       delta,
       typeValue: typeof prize === "number" ? "roulette_prize_stars" : "roulette_prize_nft",
+      // дополнительные поля, чтобы удовлетворить NOT NULL в кастомных схемах
+      extra: {
+        amount_rub: 0,                // у тебя NOT NULL — заполняем 0
+        currency: "stars",            // если колонка есть — не помешает
+        source: "roulette",
+        created_at: new Date().toISOString(), // если нет default now()
+      },
     });
 
     if (prize === "PLUSH_PEPE_NFT") {
-      // не обязательная таблица — тихая попытка
       try {
         await supabase.from("gifts_claims").insert([
           { tg_id, gift_code: "PLUSH_PEPE_NFT", title: "Plush Pepe NFT", image_url: "https://i.imgur.com/BmoA5Ui.jpeg", status: "pending" },
@@ -90,13 +92,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const starsAfter = await getStars(supabase, tg_id).catch(() => starsBefore + delta);
     return res.status(200).json({ ok: true, prize, balance: starsAfter, tg_id });
   } catch (e: any) {
-    return res.status(500).json({
-      ok: false,
-      error: "SPIN_FAILED",
-      details: e?.message || String(e),
-      balance: starsBefore,
-      tg_id,
-    });
+    return res.status(500).json({ ok: false, error: "SPIN_FAILED", details: e?.message || String(e), balance: starsBefore, tg_id });
   }
 }
 
@@ -107,17 +103,24 @@ async function getStars(supabase: any, tg_id: number): Promise<number> {
 }
 
 /**
- * Пытаемся по порядку:
- *  A) { delta, type }         — если есть delta и NOT NULL type
- *  B) { amount, type }        — если delta нет, но есть amount и NOT NULL type
- *  C) { delta }               — если type-колонки нет вообще
- *  D) { amount }              — если нет ни type, ни delta
+ * Порядок попыток:
+ *  A) { delta, type, ...extra }
+ *  B) { amount, type, ...extra }
+ *  C) { delta, ...extra }        (если в схеме нет 'type')
+ *  D) { amount, ...extra }
  */
 async function insertLedgerSmart(
   supabase: any,
-  opts: { table: string; tgField: string; tg_id: number; delta: number; typeValue: string }
+  opts: {
+    table: string;
+    tgField: string;
+    tg_id: number;
+    delta: number;
+    typeValue: string;
+    extra?: Record<string, any>;
+  }
 ) {
-  const base = { [opts.tgField]: opts.tg_id };
+  const base = { [opts.tgField]: opts.tg_id, ...(opts.extra || {}) };
 
   // A) delta + type
   let { error } = await supabase.from(opts.table).insert([{ ...base, delta: opts.delta, type: opts.typeValue }]);
@@ -125,25 +128,22 @@ async function insertLedgerSmart(
 
   const msg = String(error?.message || "").toLowerCase();
 
-  // если ругается, что delta не существует — пробуем amount + type
+  // B) amount + type (если нет delta)
   if (msg.includes('column "delta"') || msg.includes("delta column")) {
     ({ error } = await supabase.from(opts.table).insert([{ ...base, amount: opts.delta, type: opts.typeValue }]));
     if (!error) return;
   }
 
-  // если ругается, что type не существует — пробуем без type
+  // C) delta без type (если в схеме нет type)
   if (msg.includes('column "type"') || msg.includes("type column")) {
-    // C) delta
     ({ error } = await supabase.from(opts.table).insert([{ ...base, delta: opts.delta }]));
     if (!error) return;
-
-    // D) amount
+    // D) amount без type
     ({ error } = await supabase.from(opts.table).insert([{ ...base, amount: opts.delta }]));
     if (!error) return;
   }
 
-  // Если мы сюда дошли — повторно попытаться разумным альтернативным вариантом:
-  // попробуем amount + type (если это не мы уже пробовали выше)
+  // Последняя попытка: amount + type (если предыдущая была про delta)
   if (!msg.includes('column "type"')) {
     ({ error } = await supabase.from(opts.table).insert([{ ...base, amount: opts.delta, type: opts.typeValue }]));
     if (!error) return;
