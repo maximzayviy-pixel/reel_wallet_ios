@@ -1,5 +1,6 @@
 import BottomNav from "./BottomNav";
 import Head from "next/head";
+import BalanceSync from "./BalanceSync";
 
 export default function Layout({ children, title = "Reel Wallet" }: { children: React.ReactNode; title?: string }) {
   return (
