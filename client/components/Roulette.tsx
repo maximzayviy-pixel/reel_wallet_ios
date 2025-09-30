@@ -1,12 +1,16 @@
 // components/Roulette.tsx
-import React, { useCallback, useMemo, useRef, useState } from 'react';
-import Image from 'next/image';
+import React, { useCallback, useMemo, useState } from "react";
+import Image from "next/image";
 
 const COST = 15;
 
-type SpinRespOk = { ok: true; prize: number | 'PLUSH_PEPE_NFT'; stars_after: number };
+type SpinRespOk = { ok: true; prize: number | "PLUSH_PEPE_NFT"; stars_after: number };
 type SpinRespErr = { ok: false; error: string; details?: string };
 type SpinResp = SpinRespOk | SpinRespErr;
+
+function isOk(resp: SpinResp): resp is SpinRespOk {
+  return resp.ok === true;
+}
 
 export default function Roulette({
   tgId,
@@ -22,14 +26,14 @@ export default function Roulette({
 
   const prizes = useMemo(
     () => [
-      { label: '+3 ⭐', val: 3, p: '30%' },
-      { label: '+5 ⭐', val: 5, p: '24%' },
-      { label: '+10 ⭐', val: 10, p: '18%' },
-      { label: '+15 ⭐', val: 15, p: '12%' },
-      { label: '+50 ⭐', val: 50, p: '8%' },
-      { label: '+100 ⭐', val: 100, p: '5.5%' },
-      { label: '+1000 ⭐', val: 1000, p: '2.4%' },
-      { label: 'Plush Pepe NFT', val: 'PLUSH_PEPE_NFT', p: '0.1%', img: 'https://i.imgur.com/BmoA5Ui.jpeg' },
+      { label: "+3 ⭐", val: 3, p: "30%" },
+      { label: "+5 ⭐", val: 5, p: "24%" },
+      { label: "+10 ⭐", val: 10, p: "18%" },
+      { label: "+15 ⭐", val: 15, p: "12%" },
+      { label: "+50 ⭐", val: 50, p: "8%" },
+      { label: "+100 ⭐", val: 100, p: "5.5%" },
+      { label: "+1000 ⭐", val: 1000, p: "2.4%" },
+      { label: "Plush Pepe NFT", val: "PLUSH_PEPE_NFT" as const, p: "0.1%", img: "https://i.imgur.com/BmoA5Ui.jpeg" },
     ],
     []
   );
@@ -38,24 +42,26 @@ export default function Roulette({
     setErr(null);
     if (loading) return;
     if (stars < COST) {
-      setErr('Недостаточно звёзд');
+      setErr("Недостаточно звёзд");
       return;
     }
     setLoading(true);
     try {
-      const r = await fetch('/api/roulette-spin', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const r = await fetch("/api/roulette-spin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tg_id: tgId }),
       });
       const json: SpinResp = await r.json();
-      if (!json.ok) {
-        setErr(`${json.error}${json.details ? `: ${json.details}` : ''}`);
-      } else {
+
+      if (isOk(json)) {
         onBalanceChange(json.stars_after);
+      } else {
+        const msg = json.details ? `${json.error}: ${json.details}` : json.error;
+        setErr(msg);
       }
-    } catch (e: any) {
-      setErr('SPIN_FAILED');
+    } catch {
+      setErr("SPIN_FAILED");
     } finally {
       setLoading(false);
     }
@@ -102,7 +108,7 @@ export default function Roulette({
           disabled={loading}
           className="rounded-xl bg-blue-600 text-white px-4 py-3 font-semibold disabled:opacity-60"
         >
-          {loading ? 'Крутим…' : `Крутить за ${COST} ⭐`}
+          {loading ? "Крутим…" : `Крутить за ${COST} ⭐`}
         </button>
         <div className="text-sm rounded-lg bg-emerald-50 text-emerald-700 px-3 py-2">
           баланс: <b>{stars}</b>
