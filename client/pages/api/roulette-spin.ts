@@ -7,7 +7,7 @@ type Err = { ok: false; error: string; details?: string; balance?: number; tg_id
 
 const COST = 15;
 
-// Ровно тот набор призов/весов, что в интерфейсе
+// Ровно те же призы/веса, что в интерфейсе
 const PRIZES: Array<{ value: number | "PLUSH_PEPE_NFT"; weight: number }> = [
   { value: 3, weight: 30 },
   { value: 5, weight: 24 },
@@ -56,33 +56,49 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     auth: { persistSession: false },
   }) as any;
 
-  // 1) баланс до — из balances_by_tg (как /api/my-balance)
+  // 1) баланс до — из balances_by_tg
   const starsBefore = await getStars(supabase, tg_id).catch(() => NaN);
-  if (!Number.isFinite(starsBefore)) return res.status(500).json({ ok: false, error: "BALANCE_QUERY_FAILED", tg_id });
-  if (starsBefore < COST) return res.status(400).json({ ok: false, error: "NOT_ENOUGH_STARS", balance: starsBefore, tg_id });
+  if (!Number.isFinite(starsBefore))
+    return res.status(500).json({ ok: false, error: "BALANCE_QUERY_FAILED", tg_id });
+  if (starsBefore < COST)
+    return res.status(400).json({ ok: false, error: "NOT_ENOUGH_STARS", balance: starsBefore, tg_id });
 
   try {
-    // 2) розыгрыш
-    const prize = pickPrize();
-    const delta = typeof prize === "number" ? prize - COST : -COST; // изменение в звёздах
+    // 2) ищем user_id для внешнего ключа
+    const { data: userRow, error: userErr } = await supabase
+      .from("users")
+      .select("id")
+      .eq("tg_id", tg_id)
+      .maybeSingle();
 
-    // 3) одна запись в ledger — строго под твою схему:
-    // REQUIRED: type (text NOT NULL), amount_rub (numeric NOT NULL)
+    if (userErr) throw new Error(userErr.message);
+    if (!userRow?.id) {
+      return res
+        .status(400)
+        .json({ ok: false, error: "USER_NOT_FOUND", balance: starsBefore, tg_id });
+    }
+
+    // 3) розыгрыш и вычисление изменения в звёздах
+    const prize = pickPrize();
+    const delta = typeof prize === "number" ? prize - COST : -COST;
+
+    // 4) одна запись в ledger — строго под твою схему (type, amount_rub — NOT NULL)
     const row: any = {
+      user_id: userRow.id, // <-- обязателен из-за FK
       tg_id,
       type: typeof prize === "number" ? "roulette_prize_stars" : "roulette_prize_nft",
       amount_rub: 0,
-      amount: delta,        // храним изменение в звёздах (amount/delta у тебя nullable)
+      amount: delta,
       delta,
       status: "done",
       metadata: { source: "roulette", cost: COST, prize },
-      // created_at у тебя с DEFAULT now(), так что можно не передавать
+      // created_at у тебя DEFAULT now(), передавать не обязательно
     };
 
     const { error: insErr } = await supabase.from("ledger").insert([row]);
     if (insErr) throw new Error(insErr.message);
 
-    // 4) если выпал NFT — опциональная запись о клейме
+    // 5) (опционально) фиксируем NFT-выигрыш
     if (prize === "PLUSH_PEPE_NFT") {
       try {
         await supabase.from("gifts_claims").insert([
@@ -98,7 +114,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       } catch {}
     }
 
-    // 5) баланс после
+    // 6) баланс после
     const starsAfter = await getStars(supabase, tg_id).catch(() => starsBefore + delta);
     return res.status(200).json({ ok: true, prize, balance: starsAfter, tg_id });
   } catch (e: any) {
