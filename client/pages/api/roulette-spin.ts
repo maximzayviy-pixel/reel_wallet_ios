@@ -25,22 +25,20 @@ function pickPrize(): Prize {
   // равномерное число [0..TOTAL_WEIGHT)
   const r = (Number(crypto.randomBytes(6).readUIntBE(0, 6)) / 2 ** 48) * TOTAL_WEIGHT;
   let acc = 0;
-  for (const p of PRIZES) {
-    acc += p.weight;
-    if (r <= acc) return p;
-  }
+  for (const p of PRIZES) { acc += p.weight; if (r <= acc) return p; }
   return PRIZES[0];
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") return res.status(405).json({ ok: false, error: "METHOD_NOT_ALLOWED" });
 
-  // Читаем tg_id из initData (заголовок) или из тела
+  // Приоритет: x-tg-id (заголовок) → тело → x-init-data (Telegram)
   const initData = (req.headers["x-init-data"] as string) || (req.headers["x-telegram-init-data"] as string) || "";
+  const headerTg = (req.headers["x-tg-id"] as string) || "";
   const bodyVal = (req.body && (req.body.tg_id ?? req.body.tgId)) as string | number | undefined;
   const bodyTg = bodyVal != null && String(bodyVal).trim() !== "" ? Number(bodyVal) : 0;
-  let tg_id = bodyTg;
 
+  let tg_id = headerTg ? Number(headerTg) : bodyTg;
   try {
     if (!tg_id && initData) {
       const enc = encodeURIComponent(initData);
@@ -58,15 +56,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   });
 
   try {
-    // 1) Берём текущий баланс
+    // 1) Текущий баланс
     const { data: balView, error: balErr } = await supabase.rpc("get_balance_by_tg", { p_tg_id: tg_id });
     if (balErr) throw balErr;
     const balance: number = Number((balView as any)?.balance ?? 0);
     if (balance < COST_PER_SPIN) {
-      return res.status(400).json({ ok: false, error: "NOT_ENOUGH_STARS" });
+      return res.status(400).json({ ok: false, error: "NOT_ENOUGH_STARS", balance });
     }
 
-    // 2) Списываем стоимость игры
+    // 2) Списываем стоимость
     const { error: debitErr } = await supabase.from("ledger").insert({
       tg_id,
       delta: -COST_PER_SPIN,
@@ -78,7 +76,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // 3) Выбираем приз
     const prize = pickPrize();
 
-    // 4) Применяем приз
+    // 4) Начисляем приз
     if (prize.type === "stars") {
       const { error: deltaErr } = await supabase.from("ledger").insert({
         tg_id,
@@ -97,7 +95,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (nftErr) throw nftErr;
     }
 
-    // 5) Возвращаем обновлённый баланс
+    // 5) Новый баланс
     const { data: balAfter, error: balAfterErr } = await supabase.rpc("get_balance_by_tg", { p_tg_id: tg_id });
     if (balAfterErr) throw balAfterErr;
 
