@@ -6,18 +6,17 @@ type Ok = { ok: true; prize: number | "PLUSH_PEPE_NFT"; balance: number; tg_id: 
 type Err = { ok: false; error: string; details?: string; balance?: number; tg_id?: number };
 
 const COST = 15;
-const LEDGER_TABLE = process.env.LEDGER_TABLE_NAME || "ledger";
-const LEDGER_TG_FIELD = process.env.LEDGER_TG_FIELD_NAME || "tg_id";
 
+// шансы те же, что в UI
 const PRIZES: Array<{ value: number | "PLUSH_PEPE_NFT"; weight: number }> = [
   { value: 3, weight: 30 },
-  { value: 5, weight: 24 },
-  { value: 10, weight: 18 },
-  { value: 15, weight: 12 },
-  { value: 50, weight: 8 },
-  { value: 100, weight: 5.5 },
-  { value: 1000, weight: 2.4 },
-  { value: "PLUSH_PEPE_NFT", weight: 0.1 },
+  { value: 5, weight: 19 },
+  { value: 10, weight: 13 },
+  { value: 15, weight: 9 },
+  { value: 50, weight: 4 },
+  { value: 100, weight: 3.5 },
+  { value: 1000, weight: 1.4 },
+  { value: "PLUSH_PEPE_NFT", weight: 0.01 },
 ];
 
 function pickPrize() {
@@ -35,6 +34,7 @@ function readTgId(req: NextApiRequest) {
   const headerTg = (req.headers["x-tg-id"] as string) || "";
   const bodyVal = (req.body && (req.body.tg_id ?? req.body.tgId)) as string | number | undefined;
   const bodyTg = bodyVal != null && String(bodyVal).trim() !== "" ? Number(bodyVal) : 0;
+
   let tg_id = headerTg ? Number(headerTg) : bodyTg;
   try {
     if (!tg_id && initData) {
@@ -56,39 +56,47 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     auth: { persistSession: false },
   }) as any;
 
-  // баланс «как в my-balance»
+  // 1) баланс до — как в /api/my-balance
   const starsBefore = await getStars(supabase, tg_id).catch(() => NaN);
   if (!Number.isFinite(starsBefore)) return res.status(500).json({ ok: false, error: "BALANCE_QUERY_FAILED", tg_id });
   if (starsBefore < COST) return res.status(400).json({ ok: false, error: "NOT_ENOUGH_STARS", balance: starsBefore, tg_id });
 
   try {
+    // 2) розыгрыш
     const prize = pickPrize();
-    const delta = typeof prize === "number" ? prize - COST : -COST;
+    const delta = typeof prize === "number" ? prize - COST : -COST; // изменение в звёздах
 
-    // атомарная проводка (приз − 15), с обязательными полями
-    await insertLedgerSmart(supabase, {
-      table: LEDGER_TABLE,
-      tgField: LEDGER_TG_FIELD,
+    // 3) одна запись в ledger (строго по схеме, которую ты прислал)
+    // обязательные поля: type (NOT NULL), amount_rub (NOT NULL)
+    // delta/amount у тебя есть и они NULLABLE — используем amount
+    const row: any = {
       tg_id,
-      delta,
-      typeValue: typeof prize === "number" ? "roulette_prize_stars" : "roulette_prize_nft",
-      // дополнительные поля, чтобы удовлетворить NOT NULL в кастомных схемах
-      extra: {
-        amount_rub: 0,                // у тебя NOT NULL — заполняем 0
-        currency: "stars",            // если колонка есть — не помешает
-        source: "roulette",
-        created_at: new Date().toISOString(), // если нет default now()
-      },
-    });
+      type: typeof prize === "number" ? "roulette_prize_stars" : "roulette_prize_nft",
+      amount: delta,           // изменение баланса в звёздах
+      amount_rub: 0,           // у тебя NOT NULL
+      status: "done",          // есть default, но можем явно указать
+      // metadata: { source: "roulette" }, // опционально: если хочешь
+    };
 
+    const { error: insErr } = await supabase.from("ledger").insert([row]);
+    if (insErr) throw new Error(insErr.message);
+
+    // 4) (опционально) фиксируем NFT-выигрыш
     if (prize === "PLUSH_PEPE_NFT") {
       try {
         await supabase.from("gifts_claims").insert([
-          { tg_id, gift_code: "PLUSH_PEPE_NFT", title: "Plush Pepe NFT", image_url: "https://i.imgur.com/BmoA5Ui.jpeg", status: "pending" },
+          {
+            tg_id,
+            gift_code: "PLUSH_PEPE_NFT",
+            title: "Plush Pepe NFT",
+            image_url: "https://i.imgur.com/BmoA5Ui.jpeg",
+            status: "pending",
+          },
         ]);
       } catch {}
     }
 
+    // 5) баланс после
     const starsAfter = await getStars(supabase, tg_id).catch(() => starsBefore + delta);
     return res.status(200).json({ ok: true, prize, balance: starsAfter, tg_id });
   } catch (e: any) {
@@ -100,54 +108,4 @@ async function getStars(supabase: any, tg_id: number): Promise<number> {
   const { data, error } = await supabase.from("balances_by_tg").select("stars").eq("tg_id", tg_id).maybeSingle();
   if (error) throw error;
   return Number(data?.stars || 0);
-}
-
-/**
- * Порядок попыток:
- *  A) { delta, type, ...extra }
- *  B) { amount, type, ...extra }
- *  C) { delta, ...extra }        (если в схеме нет 'type')
- *  D) { amount, ...extra }
- */
-async function insertLedgerSmart(
-  supabase: any,
-  opts: {
-    table: string;
-    tgField: string;
-    tg_id: number;
-    delta: number;
-    typeValue: string;
-    extra?: Record<string, any>;
-  }
-) {
-  const base = { [opts.tgField]: opts.tg_id, ...(opts.extra || {}) };
-
-  // A) delta + type
-  let { error } = await supabase.from(opts.table).insert([{ ...base, delta: opts.delta, type: opts.typeValue }]);
-  if (!error) return;
-
-  const msg = String(error?.message || "").toLowerCase();
-
-  // B) amount + type (если нет delta)
-  if (msg.includes('column "delta"') || msg.includes("delta column")) {
-    ({ error } = await supabase.from(opts.table).insert([{ ...base, amount: opts.delta, type: opts.typeValue }]));
-    if (!error) return;
-  }
-
-  // C) delta без type (если в схеме нет type)
-  if (msg.includes('column "type"') || msg.includes("type column")) {
-    ({ error } = await supabase.from(opts.table).insert([{ ...base, delta: opts.delta }]));
-    if (!error) return;
-    // D) amount без type
-    ({ error } = await supabase.from(opts.table).insert([{ ...base, amount: opts.delta }]));
-    if (!error) return;
-  }
-
-  // Последняя попытка: amount + type (если предыдущая была про delta)
-  if (!msg.includes('column "type"')) {
-    ({ error } = await supabase.from(opts.table).insert([{ ...base, amount: opts.delta, type: opts.typeValue }]));
-    if (!error) return;
-  }
-
-  throw new Error(error?.message || "ledger insert failed");
 }
