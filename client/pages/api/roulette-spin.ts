@@ -2,7 +2,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { createClient } from "@supabase/supabase-js";
 
-type Ok = { ok: true; prize: number | "PLUSH_PEPE_NFT"; balance: number; tg_id: number };
+type Ok  = { ok: true;  prize: number | "PLUSH_PEPE_NFT"; balance: number; tg_id: number };
 type Err = { ok: false; error: string; details?: string; balance?: number; tg_id?: number };
 
 const COST = 15;
@@ -28,8 +28,8 @@ function pickPrize() {
 function readTgId(req: NextApiRequest): number {
   const initData = (req.headers["x-init-data"] as string) || (req.headers["x-telegram-init-data"] as string) || "";
   const headerTg = (req.headers["x-tg-id"] as string) || "";
-  const bodyVal = (req.body && (req.body.tg_id ?? req.body.tgId)) as string | number | undefined;
-  const bodyTg = bodyVal != null && String(bodyVal).trim() !== "" ? Number(bodyVal) : 0;
+  const bodyVal  = (req.body && (req.body.tg_id ?? req.body.tgId)) as string | number | undefined;
+  const bodyTg   = bodyVal != null && String(bodyVal).trim() !== "" ? Number(bodyVal) : 0;
 
   let tg_id = headerTg ? Number(headerTg) : bodyTg;
   try {
@@ -52,58 +52,58 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     auth: { persistSession: false },
   }) as any;
 
-  // баланс до
-  const starsBefore = await getStars(supabase, tg_id).catch(() => NaN);
+  // 1) читаем текущие звёзды из твоей вьюхи (только чтобы проверить «хватает ли»)
+  const starsBefore = await getStarsSafe(supabase, tg_id);
   if (!Number.isFinite(starsBefore)) return res.status(500).json({ ok: false, error: "BALANCE_QUERY_FAILED", tg_id });
   if (starsBefore < COST) return res.status(400).json({ ok: false, error: "NOT_ENOUGH_STARS", balance: starsBefore, tg_id });
 
   try {
-    // user_id по tg_id (или создаём)
-    let { data: userRow, error: userErr } = await supabase
-      .from("users").select("id").eq("tg_id", tg_id).maybeSingle();
+    // 2) user_id
+    let { data: userRow, error: userErr } = await supabase.from("users").select("id").eq("tg_id", tg_id).maybeSingle();
     if (userErr) throw new Error(userErr.message);
     if (!userRow?.id) {
-      const { data: newUser, error: insErr } = await supabase
-        .from("users").insert([{ tg_id }]).select("id").maybeSingle();
+      const { data: newUser, error: insErr } = await supabase.from("users").insert([{ tg_id }]).select("id").maybeSingle();
       if (insErr || !newUser?.id) {
         return res.status(400).json({ ok: false, error: "USER_CREATE_FAILED", details: insErr?.message || "no id returned", balance: starsBefore, tg_id });
       }
       userRow = newUser;
     }
 
-    // розыгрыш
+    // 3) розыгрыш
     const prize = pickPrize();
-    const win = typeof prize === "number" ? prize : 0;
+    const win   = typeof prize === "number" ? prize : 0;
 
-    // ДВЕ ПРОВОДКИ — списание и выигрыш (лучше бьются с агрегациями)
+    // 4) две проводки в ledger: ставка и выигрыш
     const rows: any[] = [
-      { user_id: userRow.id, tg_id, type: "stars_spend_roulette", amount_rub: 0, amount: -COST, delta: -COST, status: "done", metadata: { source: "roulette", kind: "bet", cost: COST } },
-      { user_id: userRow.id, tg_id, type: typeof prize === "number" ? "stars_win_roulette" : "stars_win_roulette_nft", amount_rub: 0, amount: win, delta: win, status: "done", metadata: { source: "roulette", kind: "win", prize } },
+      { user_id: userRow.id, tg_id, type: "stars_spend_roulette",        amount_rub: 0, amount: -COST, delta: -COST, status: "done", metadata: { source: "roulette", kind: "bet",  cost: COST } },
+      { user_id: userRow.id, tg_id, type: typeof prize === "number" ? "stars_win_roulette" : "stars_win_roulette_nft",
+        amount_rub: 0, amount: win, delta: win, status: "done", metadata: { source: "roulette", kind: "win", prize } },
     ];
-
     const { error: insErr } = await supabase.from("ledger").insert(rows);
     if (insErr) throw new Error(insErr.message);
 
-    // (опционально) NFT запись — не ломаем спин, если таблицы/политик нет
+    // 5) опционально фиксируем NFT (не ломаем спин, если таблицы/политик нет)
     if (prize === "PLUSH_PEPE_NFT") {
       try {
-        await supabase.from("gifts_claims").insert([
-          { tg_id, gift_code: "PLUSH_PEPE_NFT", title: "Plush Pepe NFT", image_url: "https://i.imgur.com/BmoA5Ui.jpeg", status: "pending", metadata: { source: "roulette" } },
-        ]);
+        await supabase.from("gifts_claims").insert([{ tg_id, gift_code: "PLUSH_PEPE_NFT", title: "Plush Pepe NFT", image_url: "https://i.imgur.com/BmoA5Ui.jpeg", status: "pending", metadata: { source: "roulette" } }]);
       } catch (e: any) { console.warn("gifts_claims insert skipped:", e?.message || e); }
     }
 
-    // баланс после
-    const starsAfter = await getStars(supabase, tg_id).catch(() => starsBefore - COST + win);
-    return res.status(200).json({ ok: true, prize, balance: starsAfter, tg_id });
+    // 6) ВОЗВРАЩАЕМ ВЫЧИСЛЕННЫЙ БАЛАНС (а не то, что успела вернуть вьюха)
+    const balanceAfter = starsBefore - COST + win;
+    return res.status(200).json({ ok: true, prize, balance: balanceAfter, tg_id });
   } catch (e: any) {
     console.error("SPIN_FAILED:", e?.message || e);
     return res.status(500).json({ ok: false, error: "SPIN_FAILED", details: e?.message || String(e), balance: starsBefore, tg_id });
   }
 }
 
-async function getStars(supabase: any, tg_id: number): Promise<number> {
-  const { data, error } = await supabase.from("balances_by_tg").select("stars").eq("tg_id", tg_id).maybeSingle();
-  if (error) throw error;
-  return Number(data?.stars || 0);
+async function getStarsSafe(supabase: any, tg_id: number): Promise<number> {
+  try {
+    const { data, error } = await supabase.from("balances_by_tg").select("stars").eq("tg_id", tg_id).maybeSingle();
+    if (error) throw error;
+    return Number(data?.stars || 0);
+  } catch {
+    return NaN;
+  }
 }
