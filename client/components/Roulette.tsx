@@ -1,8 +1,8 @@
 // components/Roulette.tsx
 import { useMemo, useRef, useState, useEffect } from "react";
+import { emitStars } from "../lib/bus";
 
 type Props = { tgId: number; stars: number; onBalanceChange(v: number): void };
-
 type SpinOk  = { ok: true;  prize: number | "PLUSH_PEPE_NFT"; balance: number; tg_id: number };
 type SpinErr = { ok: false; error: string; details?: string; balance?: number; tg_id?: number };
 type SpinResp = SpinOk | SpinErr;
@@ -75,8 +75,11 @@ export default function Roulette({ tgId, stars, onBalanceChange }: Props) {
     if (stars < COST) { setErr("Недостаточно звёзд"); return; }
 
     setSpinning(true);
-    // оптимистично списываем ставку сразу
-    onBalanceChange(stars - COST);
+
+    // ⚡ Оптимистично списываем 15 — и сообщаем глобально
+    const optimistic = stars - COST;
+    onBalanceChange(optimistic);
+    emitStars({ stars: optimistic, tgId });
 
     try {
       const initData = (window as any)?.Telegram?.WebApp?.initData || "";
@@ -90,18 +93,25 @@ export default function Roulette({ tgId, stars, onBalanceChange }: Props) {
 
       if (!json.ok) {
         const e = json as SpinErr;
-        onBalanceChange(stars); // откат оптимизма
+        // откатываем везде (локально и глобально)
+        onBalanceChange(stars);
+        emitStars({ stars, tgId });
         setErr(`${e.error}${e.details ? `: ${e.details}` : ""}`);
       } else {
-        // крутим к выигранному призу
+        // крутим к выигрышу
         const idx = PRIZES.findIndex(p => p.value === json.prize);
         if (idx >= 0 && railRef.current) spinToIndex(idx);
 
-        // применяем правильный баланс после завершения анимации
-        setTimeout(() => onBalanceChange(json.balance), 2300);
+        // через окончание анимации — ставим точный баланс из API и рассылаем глобально
+        setTimeout(() => {
+          onBalanceChange(json.balance);
+          emitStars({ stars: json.balance, tgId });
+        }, 2300);
       }
     } catch {
-      onBalanceChange(stars); // откат
+      // сеть упала — полный откат
+      onBalanceChange(stars);
+      emitStars({ stars, tgId });
       setErr("Сеть недоступна");
     } finally {
       setTimeout(() => setSpinning(false), 2300);
@@ -136,7 +146,6 @@ export default function Roulette({ tgId, stars, onBalanceChange }: Props) {
           )}
         </div>
 
-        {/* GIF на спине */}
         {spinning && (
           <div className="absolute inset-0 z-20 grid place-items-center pointer-events-none">
             <img src="https://s4.ezgif.com/tmp/ezgif-4a73d92325fcc3.gif" alt="" className="h-40 w-40 object-contain mix-blend-multiply" />
@@ -151,24 +160,6 @@ export default function Roulette({ tgId, stars, onBalanceChange }: Props) {
         </button>
       </div>
       {err && <div className="mt-2 text-sm text-red-600">{err}</div>}
-
-      {!termsOk && (
-        <div className="mt-4 p-3 rounded-2xl bg-white ring-1 ring-slate-200">
-          <label className="flex items-start gap-3">
-            <input type="checkbox" className="mt-0.5" onChange={(e) => {
-              if (e.target.checked) { try { localStorage.setItem("roulette_terms_ok", "1"); } catch {} setTermsOk(true); }
-            }}/>
-            <span className="text-sm">
-              Я ознакомился с{" "}
-              <a className="text-blue-600 underline" href="https://telegra.ph/Polzovatelskoe-soglashenie-Game-Reel-Wallet-09-29" target="_blank" rel="noreferrer">
-                пользовательским соглашением
-              </a>.
-            </span>
-          </label>
-        </div>
-      )}
-
-      {/* Шансы и список призов оставил как в предыдущей версии */}
     </section>
   );
 }
