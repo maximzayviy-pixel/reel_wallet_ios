@@ -145,17 +145,19 @@ export default function TopUp() {
           </div>
         </div>
 
-        {/* TON top-up (temporarily disabled, converts to stars) */}
-        <div className="bg-white rounded-2xl p-5 shadow-sm relative overflow-hidden">
+        {/* TON top-up (disabled & blurred) */}
+        <div
+          className="bg-white rounded-2xl p-5 shadow-sm relative overflow-hidden
+                     opacity-60 blur-[2px] grayscale pointer-events-none select-none cursor-not-allowed"
+          aria-disabled="true"
+        >
           <span className="absolute right-4 top-4 text-[10px] px-2 py-1 rounded-full bg-amber-100 text-amber-700">
             временно отключено
           </span>
 
           <div className="flex items-center justify-between">
             <div className="font-semibold">Пополнить TON</div>
-            <div className="text-xs text-slate-500">
-              1 TON = 215 ₽ → ≈ 430 ⭐
-            </div>
+            <div className="text-xs text-slate-500">1 TON = 215 ₽ → ≈ 430 ⭐</div>
           </div>
 
           <div className="mt-3 space-y-2 text-slate-600">
@@ -172,9 +174,7 @@ export default function TopUp() {
 
             <div className="text-[11px] text-slate-500">
               При отправке перевода укажи в поле <span className="font-medium">Memo</span> свой Telegram ID.
-              {tgId && (
-                <> Твой ID: <span className="font-medium">{tgId}</span></>
-              )}
+              {tgId && <> Твой ID: <span className="font-medium">{tgId}</span></>}
             </div>
 
             <div className="text-[11px] text-slate-500">
