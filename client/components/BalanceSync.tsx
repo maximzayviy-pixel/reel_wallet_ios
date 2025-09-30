@@ -4,9 +4,8 @@ import { onStars } from "../lib/bus";
 
 export default function BalanceSync() {
   const [tgId, setTgId] = useState<number>(0);
-  const [stars, setStars] = useState<number>(0);
 
-  // детект tgId (TG initData -> ?tg_id -> localStorage)
+  // 1) определить tgId
   useEffect(() => {
     try {
       const w: any = typeof window !== "undefined" ? window : undefined;
@@ -20,13 +19,18 @@ export default function BalanceSync() {
         setTgId(id);
         try { localStorage.setItem("debug_tg_id", String(id)); } catch {}
       }
-      // если есть кеш звёзд — покажем сразу
-      const cached = Number((() => { try { return localStorage.getItem("global_stars") || "0"; } catch { return "0"; } })());
-      if (!Number.isNaN(cached) && cached > 0) setStars(cached);
     } catch {}
   }, []);
 
-  // загрузка текущего баланса 1 раз (если знаем tgId)
+  // 2) подписка на события (для «живого» обновления)
+  useEffect(() => {
+    return onStars(({ stars }) => {
+      try { localStorage.setItem("global_stars", String(stars)); } catch {}
+      try { (window as any).__GLOBAL_STARS = stars; } catch {}
+    });
+  }, []);
+
+  // 3) периодический подтяг кэша с сервера (например, при первом входе)
   useEffect(() => {
     if (!tgId) return;
     (async () => {
@@ -35,26 +39,12 @@ export default function BalanceSync() {
         const j = await r.json();
         if (j?.ok) {
           const s = Number(j.stars || 0);
-          setStars(s);
           try { localStorage.setItem("global_stars", String(s)); } catch {}
+          try { (window as any).__GLOBAL_STARS = s; } catch {}
         }
       } catch {}
     })();
   }, [tgId]);
 
-  // подписка на события от рулетки и других мест
-  useEffect(() => {
-    return onStars(({ stars }) => {
-      setStars(stars);
-      try { localStorage.setItem("global_stars", String(stars)); } catch {}
-    });
-  }, []);
-
-  // Экспортируем в window для чужих компонентов, если им нужно быстро взять число
-  useEffect(() => {
-    try { (window as any).__GLOBAL_STARS = stars; } catch {}
-  }, [stars]);
-
-  // Ничего не рисуем — это «невидимый мост»
-  return null;
+  return null; // невидимый мост
 }
