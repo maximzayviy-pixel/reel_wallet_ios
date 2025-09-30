@@ -21,10 +21,7 @@ const PRIZES: Array<{ value: number | "PLUSH_PEPE_NFT"; weight: number }> = [
 function pickPrize() {
   const total = PRIZES.reduce((s, p) => s + p.weight, 0);
   let r = Math.random() * total;
-  for (const p of PRIZES) {
-    r -= p.weight;
-    if (r <= 0) return p.value;
-  }
+  for (const p of PRIZES) { r -= p.weight; if (r <= 0) return p.value; }
   return PRIZES[0].value;
 }
 
@@ -63,68 +60,41 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   try {
     // user_id по tg_id (или создаём)
     let { data: userRow, error: userErr } = await supabase
-      .from("users")
-      .select("id")
-      .eq("tg_id", tg_id)
-      .maybeSingle();
+      .from("users").select("id").eq("tg_id", tg_id).maybeSingle();
     if (userErr) throw new Error(userErr.message);
-
     if (!userRow?.id) {
       const { data: newUser, error: insErr } = await supabase
-        .from("users")
-        .insert([{ tg_id }])
-        .select("id")
-        .maybeSingle();
+        .from("users").insert([{ tg_id }]).select("id").maybeSingle();
       if (insErr || !newUser?.id) {
-        return res.status(400).json({
-          ok: false,
-          error: "USER_CREATE_FAILED",
-          details: insErr?.message || "no id returned",
-          balance: starsBefore,
-          tg_id,
-        });
+        return res.status(400).json({ ok: false, error: "USER_CREATE_FAILED", details: insErr?.message || "no id returned", balance: starsBefore, tg_id });
       }
       userRow = newUser;
     }
 
     // розыгрыш
     const prize = pickPrize();
-    const delta = typeof prize === "number" ? prize - COST : -COST; // изменение в звёздах
+    const win = typeof prize === "number" ? prize : 0;
 
-    // запись в ledger — строго под твою схему: type, amount_rub (NOT NULL) + FK user_id
-    const row: any = {
-      user_id: userRow.id,
-      tg_id,
-      type: typeof prize === "number" ? "roulette_prize_stars" : "roulette_prize_nft",
-      amount_rub: 0,        // NOT NULL
-      amount: delta,        // хранить изменение в звёздах
-      delta,
-      status: "done",
-      metadata: { source: "roulette", cost: COST, prize },
-    };
+    // ДВЕ ПРОВОДКИ — списание и выигрыш (лучше бьются с агрегациями)
+    const rows: any[] = [
+      { user_id: userRow.id, tg_id, type: "stars_spend_roulette", amount_rub: 0, amount: -COST, delta: -COST, status: "done", metadata: { source: "roulette", kind: "bet", cost: COST } },
+      { user_id: userRow.id, tg_id, type: typeof prize === "number" ? "stars_win_roulette" : "stars_win_roulette_nft", amount_rub: 0, amount: win, delta: win, status: "done", metadata: { source: "roulette", kind: "win", prize } },
+    ];
 
-    const { error: insErr2 } = await supabase.from("ledger").insert([row]);
-    if (insErr2) throw new Error(insErr2.message);
+    const { error: insErr } = await supabase.from("ledger").insert(rows);
+    if (insErr) throw new Error(insErr.message);
 
-    // (опционально) пробуем зафиксировать NFT — если таблицы/политик нет, просто лог и дальше
+    // (опционально) NFT запись — не ломаем спин, если таблицы/политик нет
     if (prize === "PLUSH_PEPE_NFT") {
       try {
         await supabase.from("gifts_claims").insert([
-          {
-            tg_id,
-            gift_code: "PLUSH_PEPE_NFT",
-            title: "Plush Pepe NFT",
-            image_url: "https://i.imgur.com/BmoA5Ui.jpeg",
-            status: "pending",
-            metadata: { source: "roulette" },
-          },
+          { tg_id, gift_code: "PLUSH_PEPE_NFT", title: "Plush Pepe NFT", image_url: "https://i.imgur.com/BmoA5Ui.jpeg", status: "pending", metadata: { source: "roulette" } },
         ]);
-      } catch (e: any) {
-        console.warn("gifts_claims insert skipped:", e?.message || e);
-      }
+      } catch (e: any) { console.warn("gifts_claims insert skipped:", e?.message || e); }
     }
 
-    const starsAfter = await getStars(supabase, tg_id).catch(() => starsBefore + delta);
+    // баланс после
+    const starsAfter = await getStars(supabase, tg_id).catch(() => starsBefore - COST + win);
     return res.status(200).json({ ok: true, prize, balance: starsAfter, tg_id });
   } catch (e: any) {
     console.error("SPIN_FAILED:", e?.message || e);
