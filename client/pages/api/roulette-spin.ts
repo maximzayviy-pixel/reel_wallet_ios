@@ -4,6 +4,12 @@ import crypto from "crypto";
 
 const COST_PER_SPIN = 15;
 
+// Позволяет гибко подстроиться под твою схему БД без перекомпиляции
+const LEDGER_TABLE = process.env.LEDGER_TABLE_NAME || "ledger";
+const LEDGER_TG_FIELD = process.env.LEDGER_TG_FIELD_NAME || "tg_id"; // если у тебя, например, user_id — задай env
+const BALANCES_TABLE = process.env.BALANCES_TABLE_NAME || "balances"; // вью/таблица, которую использует /api/my-balance
+const BALANCES_TG_FIELD = process.env.BALANCES_TG_FIELD_NAME || "tg_id";
+
 type Prize =
   | { type: "stars"; label: string; value: number; weight: number }
   | { type: "nft"; label: string; image: string; weight: number };
@@ -22,17 +28,48 @@ const PRIZES: Prize[] = [
 const TOTAL_WEIGHT = PRIZES.reduce((s, p) => s + p.weight, 0);
 
 function pickPrize(): Prize {
-  // равномерное число [0..TOTAL_WEIGHT)
   const r = (Number(crypto.randomBytes(6).readUIntBE(0, 6)) / 2 ** 48) * TOTAL_WEIGHT;
   let acc = 0;
   for (const p of PRIZES) { acc += p.weight; if (r <= acc) return p; }
   return PRIZES[0];
 }
 
+// ——— баланс как на фронте: сначала balances, потом RPC ———
+async function getBalanceUnified(supabase: ReturnType<typeof createClient>, tg_id: number) {
+  // 1) balances (как у /api/my-balance)
+  try {
+    const { data, error } = await supabase
+      .from(BALANCES_TABLE)
+      .select("*")
+      .eq(BALANCES_TG_FIELD, tg_id)
+      .single();
+    if (!error && data) {
+      // пробуем популярные имена полей
+      const maybe = Number(
+        (data as any).balance ??
+        (data as any).stars ??
+        (data as any).amount ??
+        0
+      );
+      if (!Number.isNaN(maybe)) return maybe;
+    }
+  } catch {}
+
+  // 2) fallback — RPC
+  try {
+    const { data, error } = await supabase.rpc("get_balance_by_tg", { p_tg_id: tg_id });
+    if (error) throw error;
+    const maybe = Number((data as any)?.balance ?? (data as any) ?? 0);
+    if (!Number.isNaN(maybe)) return maybe;
+  } catch {}
+
+  return 0;
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") return res.status(405).json({ ok: false, error: "METHOD_NOT_ALLOWED" });
 
-  // Приоритет: x-tg-id (заголовок) → тело → x-init-data (Telegram)
+  // Приоритет: x-tg-id → тело → x-init-data (Telegram)
   const initData = (req.headers["x-init-data"] as string) || (req.headers["x-telegram-init-data"] as string) || "";
   const headerTg = (req.headers["x-tg-id"] as string) || "";
   const bodyVal = (req.body && (req.body.tg_id ?? req.body.tgId)) as string | number | undefined;
@@ -56,50 +93,43 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   });
 
   try {
-    // 1) Текущий баланс
-    const { data: balView, error: balErr } = await supabase.rpc("get_balance_by_tg", { p_tg_id: tg_id });
-    if (balErr) throw balErr;
-    const balance: number = Number((balView as any)?.balance ?? 0);
-    if (balance < COST_PER_SPIN) {
-      return res.status(400).json({ ok: false, error: "NOT_ENOUGH_STARS", balance });
+    // 1) Баланс ДО (как у фронта)
+    const balanceBefore = await getBalanceUnified(supabase, tg_id);
+    if (balanceBefore < COST_PER_SPIN) {
+      return res.status(400).json({ ok: false, error: "NOT_ENOUGH_STARS", balance: balanceBefore, tg_id });
     }
 
-    // 2) Списываем стоимость
-    const { error: debitErr } = await supabase.from("ledger").insert({
-      tg_id,
+    // 2) Списываем стоимость игры
+    const debitRow: Record<string, any> = {
       delta: -COST_PER_SPIN,
       type: "roulette_cost",
       meta: { game: "roulette" },
-    });
+    };
+    debitRow[LEDGER_TG_FIELD] = tg_id;
+
+    const { error: debitErr } = await supabase.from(LEDGER_TABLE).insert(debitRow);
     if (debitErr) throw debitErr;
 
     // 3) Выбираем приз
     const prize = pickPrize();
 
     // 4) Начисляем приз
-    if (prize.type === "stars") {
-      const { error: deltaErr } = await supabase.from("ledger").insert({
-        tg_id,
-        delta: prize.value,
-        type: "roulette_prize",
-        meta: { label: prize.label },
-      });
-      if (deltaErr) throw deltaErr;
-    } else {
-      const { error: nftErr } = await supabase.from("ledger").insert({
-        tg_id,
-        delta: 0,
-        type: "nft_reward",
-        meta: { label: prize.label, image: prize.image, game: "roulette" },
-      });
-      if (nftErr) throw nftErr;
-    }
+    const prizeRow: Record<string, any> = {
+      delta: prize.type === "stars" ? prize.value : 0,
+      type: prize.type === "stars" ? "roulette_prize" : "nft_reward",
+      meta: prize.type === "stars"
+        ? { label: prize.label }
+        : { label: prize.label, image: prize.image, game: "roulette" },
+    };
+    prizeRow[LEDGER_TG_FIELD] = tg_id;
 
-    // 5) Новый баланс
-    const { data: balAfter, error: balAfterErr } = await supabase.rpc("get_balance_by_tg", { p_tg_id: tg_id });
-    if (balAfterErr) throw balAfterErr;
+    const { error: prizeErr } = await supabase.from(LEDGER_TABLE).insert(prizeRow);
+    if (prizeErr) throw prizeErr;
 
-    return res.status(200).json({ ok: true, prize, balance: Number((balAfter as any)?.balance ?? 0) });
+    // 5) Баланс ПОСЛЕ (тем же способом, что и фронт)
+    const balanceAfter = await getBalanceUnified(supabase, tg_id);
+
+    return res.status(200).json({ ok: true, prize, balance: balanceAfter, tg_id });
   } catch (e: any) {
     console.error(e);
     return res.status(500).json({ ok: false, error: "SPIN_FAILED" });
