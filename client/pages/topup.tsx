@@ -145,31 +145,45 @@ export default function TopUp() {
           </div>
         </div>
 
-        {/* TON top-up instructions */}
-        <div className="bg-white rounded-2xl p-5 shadow-sm">
+                {/* TON top-up (temporarily disabled, converts to stars) */}
+        <div className="bg-white rounded-2xl p-5 shadow-sm relative overflow-hidden">
+          <span className="absolute right-4 top-4 text-[10px] px-2 py-1 rounded-full bg-amber-100 text-amber-700">
+            временно отключено
+          </span>
+
           <div className="flex items-center justify-between">
             <div className="font-semibold">Пополнить TON</div>
-            <div className="text-xs text-slate-500">Курс: 1 TON = 215 ₽</div>
+            <div className="text-xs text-slate-500">
+              1 TON = 215 ₽ → ≈ 430 ⭐
+            </div>
           </div>
-          <div className="mt-3 space-y-2">
+
+          <div className="mt-3 space-y-2 text-slate-600">
+            <p className="text-xs">
+              Сейчас баланс TON недоступен, но <span className="font-medium">все входящие переводы TON
+              автоматически конвертируются в звёзды</span> по указанному курсу. Пополнение увидишь
+              в разделе «Звёзды Telegram».
+            </p>
+
             <div className="text-[11px] text-slate-500">Адрес кошелька для пополнения</div>
             <div className="text-sm font-mono break-all bg-slate-50 rounded-xl p-3 select-all">
               {process.env.NEXT_PUBLIC_TON_ADMIN_WALLET || 'UQDIuA63KyO5wzSlonPyRBeMn8z_B62gHLJaNt9ps-CVujG7'}
             </div>
+
             <div className="text-[11px] text-slate-500">
-              При отправке перевода укажите в поле Memo ваш Telegram ID.
+              При отправке перевода укажи в поле <span className="font-medium">Memo</span> свой Telegram ID.
               {tgId && (
                 <>
-                  {' '}Ваш ID: <span className="font-medium">{tgId}</span>
+                  {' '}Твой ID: <span className="font-medium">{tgId}</span>
                 </>
               )}
             </div>
+
             <div className="text-[11px] text-slate-500">
-              После поступления TON на кошелек в течении 5-7 минут, бот начислит TON на ваш баланс.
+              После поступления TON в течение 5–7 минут бот зачислит <span className="font-medium">эквивалент в ⭐</span> на твой баланс.
             </div>
           </div>
         </div>
-      </div>
     </Layout>
   );
 }
