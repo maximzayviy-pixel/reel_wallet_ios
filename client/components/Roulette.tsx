@@ -14,20 +14,20 @@ type SpinResp = SpinOk | SpinErr;
 const COST = 15;
 const PRIZES = [
   { label: "+3 ⭐",    value: 3,    weight: 30 },
-  { label: "+5 ⭐",    value: 5,    weight: 24 },
-  { label: "+10 ⭐",   value: 10,   weight: 18 },
-  { label: "+15 ⭐",   value: 15,   weight: 12 },
-  { label: "+50 ⭐",   value: 50,   weight: 8  },
-  { label: "+100 ⭐",  value: 100,  weight: 5.5},
-  { label: "+1000 ⭐", value: 1000, weight: 2.4},
-  { label: "Plush Pepe NFT", value: "PLUSH_PEPE_NFT" as const, weight: 0.1,
+  { label: "+5 ⭐",    value: 5,    weight: 20 },
+  { label: "+10 ⭐",   value: 10,   weight: 15 },
+  { label: "+15 ⭐",   value: 15,   weight: 10 },
+  { label: "+50 ⭐",   value: 50,   weight: 5  },
+  { label: "+100 ⭐",  value: 100,  weight: 3.5},
+  { label: "+1000 ⭐", value: 1000, weight: 1.4},
+  { label: "Plush Pepe NFT", value: "PLUSH_PEPE_NFT" as const, weight: 0.00001,
     image: "https://i.imgur.com/BmoA5Ui.jpeg" },
 ];
 
 export default function Roulette({ tgId, stars, onBalanceChange }: Props) {
   const [spinning, setSpinning] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [termsOk, setTermsOk] = useState<boolean>(true); // по умолчанию true, если уже согласился ранее
+  const [termsOk, setTermsOk] = useState<boolean>(true);
 
   useEffect(() => {
     try { setTermsOk(!!localStorage.getItem("roulette_terms_ok")); } catch {}
@@ -62,14 +62,18 @@ export default function Roulette({ tgId, stars, onBalanceChange }: Props) {
       });
 
       const json: SpinResp = await r.json().catch(() => ({ ok: false, error: "BAD_JSON" }) as SpinErr);
+
       if (!json.ok) {
-        setErr(`${json.error}${json.details ? `: ${json.details}` : ""}`);
+        const e = json as SpinErr; // <-- сужение типа
+        setErr(`${e.error}${e.details ? `: ${e.details}` : ""}`);
       } else {
         onBalanceChange(json.balance);
         // плавно «докручиваем» к карточке приза (визуальный эффект)
         const idx = PRIZES.findIndex(p => p.value === json.prize);
         if (idx >= 0 && railRef.current) {
-          const card = railRef.current.querySelectorAll<HTMLElement>("[data-card]")[idx + PRIZES.length]; // из средней тройной ленты
+          const all = railRef.current.querySelectorAll<HTMLElement>("[data-card]");
+          // берём среднюю ленту (мы трижды дублировали PRIZES)
+          const card = all[idx + PRIZES.length];
           if (card) {
             const rail = railRef.current;
             const center = rail.clientWidth / 2 - card.clientWidth / 2;
@@ -81,7 +85,7 @@ export default function Roulette({ tgId, stars, onBalanceChange }: Props) {
     } catch {
       setErr("Сеть недоступна");
     } finally {
-      setTimeout(() => setSpinning(false), 1200); // убираем гифку через 1.2s
+      setTimeout(() => setSpinning(false), 1200);
     }
   };
 
@@ -101,7 +105,11 @@ export default function Roulette({ tgId, stars, onBalanceChange }: Props) {
       </div>
 
       {/* Горизонтальный барабан с карточками */}
-      <div ref={railRef} className="relative overflow-x-auto no-scrollbar rounded-3xl ring-1 ring-slate-200 bg-white" style={{ scrollBehavior: "smooth" }}>
+      <div
+        ref={railRef}
+        className="relative overflow-x-auto no-scrollbar rounded-3xl ring-1 ring-slate-200 bg-white"
+        style={{ scrollBehavior: "smooth" }}
+      >
         <div className="flex gap-3 p-4 min-w-max">
           {PRIZES.concat(PRIZES, PRIZES).map((p, i) => (
             <div key={i} data-card className="snap-center w-40 shrink-0 rounded-2xl ring-1 ring-slate-200 bg-gradient-to-b from-slate-50 to-slate-100 p-3 flex flex-col items-center justify-center">
@@ -119,14 +127,13 @@ export default function Roulette({ tgId, stars, onBalanceChange }: Props) {
           ))}
         </div>
 
-        {/* GIF-оверлей на время спина (зелёный хромакей притушен) */}
+        {/* GIF-оверлей на время спина */}
         {spinning && (
           <div className="absolute inset-0 z-20 grid place-items-center pointer-events-none">
             <img
               src="https://s4.ezgif.com/tmp/ezgif-4a73d92325fcc3.gif"
               alt=""
               className="h-40 w-40 object-contain mix-blend-multiply"
-              // в вебе нет настоящего chroma-key, но mix-blend + белая подложка «гасит» зелёный
             />
           </div>
         )}
