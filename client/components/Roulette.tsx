@@ -1,14 +1,25 @@
 // components/Roulette.tsx
 import { useMemo, useRef, useState, useEffect } from "react";
 
-type Props = { tgId: number; stars: number; onBalanceChange(v: number): void; };
+type Props = { tgId: number; stars: number; onBalanceChange(v: number): void };
 
-type SpinOk = { ok: true; prize: number | "PLUSH_PEPE_NFT"; balance: number; tg_id: number };
+// API union
+type SpinOk  = { ok: true;  prize: number | "PLUSH_PEPE_NFT"; balance: number; tg_id: number };
 type SpinErr = { ok: false; error: string; details?: string; balance?: number; tg_id?: number };
 type SpinResp = SpinOk | SpinErr;
 
+// ——— ЖЁСТКИЕ ТИПЫ ДЛЯ ПРИЗОВ ———
+type PrizeBase = {
+  label: string;
+  value: number | "PLUSH_PEPE_NFT";
+  weight: number;
+  image?: string; // только у Plush Pepe
+};
+type PrizeWithChance = PrizeBase & { chance: number };
+
 const COST = 15;
-const PRIZES = [
+
+const PRIZES: PrizeBase[] = [
   { label: "+3 ⭐",    value: 3,    weight: 30 },
   { label: "+5 ⭐",    value: 5,    weight: 24 },
   { label: "+10 ⭐",   value: 10,   weight: 18 },
@@ -16,8 +27,7 @@ const PRIZES = [
   { label: "+50 ⭐",   value: 50,   weight: 8  },
   { label: "+100 ⭐",  value: 100,  weight: 5.5},
   { label: "+1000 ⭐", value: 1000, weight: 2.4},
-  { label: "Plush Pepe NFT", value: "PLUSH_PEPE_NFT" as const, weight: 0.1,
-    image: "https://i.imgur.com/BmoA5Ui.jpeg" },
+  { label: "Plush Pepe NFT", value: "PLUSH_PEPE_NFT", weight: 0.1, image: "https://i.imgur.com/BmoA5Ui.jpeg" },
 ];
 
 export default function Roulette({ tgId, stars, onBalanceChange }: Props) {
@@ -28,41 +38,35 @@ export default function Roulette({ tgId, stars, onBalanceChange }: Props) {
   useEffect(() => { try { setTermsOk(!!localStorage.getItem("roulette_terms_ok")); } catch {} }, []);
 
   const totalWeight = useMemo(() => PRIZES.reduce((s,p)=>s+p.weight, 0), []);
-  const chances = useMemo(
+  const chances: PrizeWithChance[] = useMemo(
     () => PRIZES.map(p => ({ ...p, chance: +(p.weight * 100 / totalWeight).toFixed(2) })),
     [totalWeight]
   );
 
   const railRef = useRef<HTMLDivElement>(null);
 
-  // аккуратный «спин» до нужной карточки
+  // плавный спин до выбранного индекса
   const spinToIndex = (targetIdx: number) => {
     const rail = railRef.current!;
     const cards = rail.querySelectorAll<HTMLElement>("[data-card]");
-    const base = PRIZES.length;                     // берём среднюю «дорожку»
+    const base = PRIZES.length; // берём среднюю «дорожку»
     const card = cards[base + targetIdx];
     if (!card) return;
 
     const center = rail.clientWidth / 2 - card.clientWidth / 2;
     const dest = card.offsetLeft - center;
 
-    // добавим «обороты» до точки (ещё 2 ширины ленты)
-    const loopWidth = cards[0].clientWidth + 12 /*gap approx*/;
+    // добавим обороты
+    const loopWidth = cards[0].clientWidth + 12; // ширина + gap (примерно)
     const extra = loopWidth * PRIZES.length * 2;
     const finalLeft = dest + extra;
 
-    // плавная анимация
     rail.style.scrollBehavior = "auto";
     const start = rail.scrollLeft;
     const dist = finalLeft - start;
-    const dur = 2200; // ms
-    const ease = (t: number) => {
-      // cubic-bezier(0.12, 0.85, 0.12, 1)
-      const c1 = 0.85, c2 = 1.0; // упрощённо
-      return (--t) * t * ((c1 + 1) * t + c2) + 1;
-    };
+    const dur = 2200;
+    const ease = (t: number) => { t = Math.min(Math.max(t,0),1); return (--t) * t * ((0.85 + 1) * t + 1) + 1; };
     let t0: number | null = null;
-
     const tick = (ts: number) => {
       if (t0 == null) t0 = ts;
       const p = Math.min(1, (ts - t0) / dur);
@@ -80,8 +84,7 @@ export default function Roulette({ tgId, stars, onBalanceChange }: Props) {
     if (stars < COST) { setErr("Недостаточно звёзд"); return; }
 
     setSpinning(true);
-
-    // ⚡ оптимистично списываем ставку сразу, UI не «дергается»
+    // оптимистично списываем ставку сразу
     onBalanceChange(stars - COST);
 
     try {
@@ -97,31 +100,26 @@ export default function Roulette({ tgId, stars, onBalanceChange }: Props) {
       });
 
       const json: SpinResp = await r.json().catch(() => ({ ok: false, error: "BAD_JSON" }) as SpinErr);
+
       if (!json.ok) {
         const e = json as SpinErr;
-        // откатываем оптимизм, если не получилось
-        onBalanceChange(stars);
+        onBalanceChange(stars); // откат оптимизма
         setErr(`${e.error}${e.details ? `: ${e.details}` : ""}`);
       } else {
-        // под крутящееся колесо подбираем финальный индекс
         const idx = PRIZES.findIndex(p => p.value === json.prize);
         if (idx >= 0 && railRef.current) spinToIndex(idx);
-
-        // через ~2.2s (когда колесо остановится) зафиксируем точный баланс с бэка
         setTimeout(() => onBalanceChange(json.balance), 2300);
       }
     } catch {
       onBalanceChange(stars); // откат
       setErr("Сеть недоступна");
     } finally {
-      // гифка поверх ~2.3s
       setTimeout(() => setSpinning(false), 2300);
     }
   };
 
   return (
     <section className="px-4 pb-24 pt-6">
-      {/* затемнение, пока нет согласия */}
       {!termsOk && <div className="fixed inset-0 z-30 bg-black/45 backdrop-blur-sm pointer-events-none" />}
 
       <h2 className="text-[20px] font-semibold mb-2">Рулетка</h2>
@@ -132,7 +130,7 @@ export default function Roulette({ tgId, stars, onBalanceChange }: Props) {
         </span>
       </div>
 
-      {/* Горизонтальный барабан: 6 кругов для красивого прогона */}
+      {/* Барабан — 6 кругов для красивого прогона */}
       <div
         ref={railRef}
         className="relative overflow-x-auto no-scrollbar rounded-3xl ring-1 ring-slate-200 bg-white"
@@ -140,15 +138,15 @@ export default function Roulette({ tgId, stars, onBalanceChange }: Props) {
       >
         <div className="flex gap-3 p-4 min-w-max">
           {Array.from({ length: 6 }).flatMap((_, loop) =>
-            PRIZES.map((p, i) => (
+            chances.map((p, i) => (
               <div key={`${loop}-${i}`} data-card
                    className="snap-center w-40 shrink-0 rounded-2xl ring-1 ring-slate-200 bg-gradient-to-b from-slate-50 to-slate-100 p-3 flex flex-col items-center justify-center">
                 <div className="h-24 w-full flex items-center justify-center overflow-hidden">
-                  {"image" in p ? (
-                    <img src={(p as any).image} alt="Plush Pepe" className="h-24 w-full object-contain" />
+                  {p.image ? (
+                    <img src={p.image} alt="Plush Pepe" className="h-24 w-full object-contain" />
                   ) : (
                     <div className="text-2xl font-bold">
-                      {String(p.label).replace(" ⭐","")}<span className="text-lg align-top">⭐</span>
+                      {typeof p.value === "number" ? `+${p.value} ⭐` : p.label}
                     </div>
                   )}
                 </div>
@@ -208,8 +206,11 @@ export default function Roulette({ tgId, stars, onBalanceChange }: Props) {
         <div className="text-sm font-medium mb-2">Шансы выпадения</div>
         <div className="grid grid-cols-2 gap-2">
           {chances.map((p, i) => {
-            const t = p.chance / 100; const red = Math.round(255 * (1 - t)); const green = Math.round(255 * t);
-            const bg = `rgba(${red},${green},80,0.14)`; const border = `rgba(${red},${green},80,0.35)`;
+            const t = p.chance / 100;
+            const red = Math.round(255 * (1 - t));
+            const green = Math.round(255 * t);
+            const bg = `rgba(${red},${green},80,0.14)`;
+            const border = `rgba(${red},${green},80,0.35)`;
             return (
               <div key={i} className="rounded-xl p-2 text-sm" style={{ background: bg, border: `1px solid ${border}` }}>
                 <div className="flex justify-between">
@@ -229,13 +230,13 @@ export default function Roulette({ tgId, stars, onBalanceChange }: Props) {
           {chances.map((p, i) => (
             <div key={i} className="rounded-2xl ring-1 ring-slate-200 bg-white p-3 text-center">
               <div className="h-20 flex items-center justify-center overflow-hidden">
-                {"image" in p ? (
-                  <img src={(p as any).image} alt="" className="h-20 w-full object-contain" />
+                {p.image ? (
+                  <img src={p.image} alt="" className="h-20 w-full object-contain" />
                 ) : (
                   <div className="text-xl font-bold">{typeof p.value === "number" ? `+${p.value} ⭐` : p.label}</div>
                 )}
               </div>
-              <div className="mt-2 text-xs text-slate-500">{(p as any).chance}%</div>
+              <div className="mt-2 text-xs text-slate-500">{p.chance}%</div>
             </div>
           ))}
         </div>
