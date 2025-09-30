@@ -1,4 +1,4 @@
-// lib/bus.ts — простая шина событий для звёзд
+// lib/bus.ts — простая шина событий для глобального баланса
 export type StarsEvent = { stars: number; tgId?: number };
 
 const EVT = "stars:update";
@@ -7,6 +7,7 @@ export function emitStars(e: StarsEvent) {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent(EVT, { detail: e }));
   try { localStorage.setItem("global_stars", String(e.stars)); } catch {}
+  try { (window as any).__GLOBAL_STARS = e.stars; } catch {}
 }
 
 export function onStars(cb: (e: StarsEvent) => void): () => void {
