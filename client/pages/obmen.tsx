@@ -20,7 +20,7 @@ type Gift = {
   pattern: string | null;
   amount_issued: number | null;
   amount_total: number | null;
-  preview_svg: string | null;      // <— новый фон из Telegram (data-uri)
+  preview_svg: string | null;
 };
 
 export default function Obmen() {
@@ -30,11 +30,11 @@ export default function Obmen() {
   const [selected, setSelected] = useState<Gift | null>(null);
   const [buying, setBuying] = useState(false);
 
-  // рулетка: баланс и tgId (минимальные добавления)
-  const [stars, setStars] = useState<number>(0);
+  // 🔹 рулетка
   const [tgId, setTgId] = useState<number>(0);
+  const [stars, setStars] = useState<number>(0);
 
-  // баннер «бета»
+  // баннер «бета» (оставляю как в твоём варианте)
   const [betaHidden, setBetaHidden] = useState(true);
   useEffect(() => {
     try {
@@ -43,6 +43,7 @@ export default function Obmen() {
     } catch { setBetaHidden(true); }
   }, []);
 
+  // загрузка товаров
   useEffect(() => {
     (async () => {
       try {
@@ -56,7 +57,7 @@ export default function Obmen() {
     })();
   }, []);
 
-  // единый способ обновить баланс
+  // helper — баланс
   const refreshBalance = async (id: number) => {
     if (!id) return;
     try {
@@ -66,7 +67,7 @@ export default function Obmen() {
     } catch {}
   };
 
-  // загрузка tgId и первичный баланс (Telegram → URL → localStorage)
+  // init tgId: Telegram → ?tg_id → localStorage
   useEffect(() => {
     try {
       const w: any = typeof window !== "undefined" ? window : undefined;
@@ -102,8 +103,7 @@ export default function Obmen() {
       if (!j.ok) throw new Error(j.error || "Ошибка");
       window.open(j.tme_link, "_blank");
       alert("Покупка успешна! Ссылка на подарок открыта.");
-      // после покупки сразу обновляем баланс для рулетки
-      if (tgId) refreshBalance(tgId);
+      if (tgId) refreshBalance(tgId); // сразу обновим баланс для рулетки
     } catch (e: any) {
       alert("Не удалось купить: " + (e?.message || "Ошибка"));
     } finally { setBuying(false); }
@@ -112,10 +112,8 @@ export default function Obmen() {
   const fmtRUB = (n: number) => new Intl.NumberFormat("ru-RU").format(Math.round(n)) + " ₽";
   const priceOf = (g: Gift) => g.value_rub ?? g.price_rub ?? 0;
 
-  // общий стиль карточного фона
   const cardBg = (g: Gift): React.CSSProperties => {
     if (g.preview_svg) {
-      // нативный svg из Telegram
       return {
         backgroundImage: `url("${g.preview_svg}")`,
         backgroundSize: "cover",
@@ -123,7 +121,6 @@ export default function Obmen() {
         backgroundRepeat: "no-repeat",
       };
     }
-    // запасной plain-фон
     return { background: "linear-gradient(180deg,#e9eef8,#7a8da8)" };
   };
 
@@ -158,7 +155,6 @@ export default function Obmen() {
               className="group rounded-3xl bg-white ring-1 ring-slate-200 hover:ring-slate-300 transition p-3 text-left shadow-sm hover:shadow-md"
             >
               <div className="relative aspect-square rounded-2xl overflow-hidden" style={cardBg(g)}>
-                {/* модель/анимка поверх фона */}
                 <div className="absolute inset-0 p-6 flex items-center justify-center">
                   <StickerPlayer
                     tgsUrl={g.tgs_url || undefined}
@@ -177,7 +173,6 @@ export default function Obmen() {
           ))}
         </div>
 
-        {/* Модалка товара */}
         {selected && (
           <div className="fixed inset-0 bg-black/30 flex items-end sm:items-center justify-center z-50" onClick={() => setSelected(null)}>
             <div className="bg-white rounded-3xl w-full sm:w-[560px] p-4 sm:p-6 m-2" onClick={(e) => e.stopPropagation()}>
@@ -194,7 +189,7 @@ export default function Obmen() {
 
                 <div className="flex-1">
                   <div className="font-semibold text-[17px] leading-5">{selected.title}</div>
-                  <a href={selected.tme_link} target="_blank" className="text-xs text-blue-600 underline">Открыть в Telegram</a>
+                  <a href={selected.tme_link} target="_blank" className="text-xs text-blue-600 underline" rel="noreferrer">Открыть в Telegram</a>
                   <div className="text-2xl font-bold mt-1">{fmtRUB(priceOf(selected))}</div>
 
                   <div className="mt-3 grid grid-cols-2 gap-2 text-[12px]">
@@ -240,7 +235,7 @@ export default function Obmen() {
         )}
       </div>
 
-      {/* ВНИЗУ: рулетка, с автообновлением баланса; отступ снизу — чтобы нижний бар не перекрывал */}
+      {/* отступ под нижний бар, чтобы не перекрывал */}
       <div className="mb-20" />
       <Roulette tgId={tgId} stars={stars} onBalanceChange={setStars} />
     </Layout>
