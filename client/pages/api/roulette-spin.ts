@@ -7,16 +7,16 @@ type Err = { ok: false; error: string; details?: string; balance?: number; tg_id
 
 const COST = 15;
 
-// шансы те же, что в UI
+// Ровно тот набор призов/весов, что в интерфейсе
 const PRIZES: Array<{ value: number | "PLUSH_PEPE_NFT"; weight: number }> = [
   { value: 3, weight: 30 },
-  { value: 5, weight: 19 },
-  { value: 10, weight: 13 },
-  { value: 15, weight: 9 },
-  { value: 50, weight: 4 },
-  { value: 100, weight: 3.5 },
-  { value: 1000, weight: 1.4 },
-  { value: "PLUSH_PEPE_NFT", weight: 0.01 },
+  { value: 5, weight: 24 },
+  { value: 10, weight: 18 },
+  { value: 15, weight: 12 },
+  { value: 50, weight: 8 },
+  { value: 100, weight: 5.5 },
+  { value: 1000, weight: 2.4 },
+  { value: "PLUSH_PEPE_NFT", weight: 0.1 },
 ];
 
 function pickPrize() {
@@ -29,7 +29,7 @@ function pickPrize() {
   return PRIZES[0].value;
 }
 
-function readTgId(req: NextApiRequest) {
+function readTgId(req: NextApiRequest): number {
   const initData = (req.headers["x-init-data"] as string) || (req.headers["x-telegram-init-data"] as string) || "";
   const headerTg = (req.headers["x-tg-id"] as string) || "";
   const bodyVal = (req.body && (req.body.tg_id ?? req.body.tgId)) as string | number | undefined;
@@ -56,7 +56,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     auth: { persistSession: false },
   }) as any;
 
-  // 1) баланс до — как в /api/my-balance
+  // 1) баланс до — из balances_by_tg (как /api/my-balance)
   const starsBefore = await getStars(supabase, tg_id).catch(() => NaN);
   if (!Number.isFinite(starsBefore)) return res.status(500).json({ ok: false, error: "BALANCE_QUERY_FAILED", tg_id });
   if (starsBefore < COST) return res.status(400).json({ ok: false, error: "NOT_ENOUGH_STARS", balance: starsBefore, tg_id });
@@ -66,22 +66,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const prize = pickPrize();
     const delta = typeof prize === "number" ? prize - COST : -COST; // изменение в звёздах
 
-    // 3) одна запись в ledger (строго по схеме, которую ты прислал)
-    // обязательные поля: type (NOT NULL), amount_rub (NOT NULL)
-    // delta/amount у тебя есть и они NULLABLE — используем amount
+    // 3) одна запись в ledger — строго под твою схему:
+    // REQUIRED: type (text NOT NULL), amount_rub (numeric NOT NULL)
     const row: any = {
       tg_id,
       type: typeof prize === "number" ? "roulette_prize_stars" : "roulette_prize_nft",
-      amount: delta,           // изменение баланса в звёздах
-      amount_rub: 0,           // у тебя NOT NULL
-      status: "done",          // есть default, но можем явно указать
-      // metadata: { source: "roulette" }, // опционально: если хочешь
+      amount_rub: 0,
+      amount: delta,        // храним изменение в звёздах (amount/delta у тебя nullable)
+      delta,
+      status: "done",
+      metadata: { source: "roulette", cost: COST, prize },
+      // created_at у тебя с DEFAULT now(), так что можно не передавать
     };
 
     const { error: insErr } = await supabase.from("ledger").insert([row]);
     if (insErr) throw new Error(insErr.message);
 
-    // 4) (опционально) фиксируем NFT-выигрыш
+    // 4) если выпал NFT — опциональная запись о клейме
     if (prize === "PLUSH_PEPE_NFT") {
       try {
         await supabase.from("gifts_claims").insert([
@@ -91,6 +92,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
             title: "Plush Pepe NFT",
             image_url: "https://i.imgur.com/BmoA5Ui.jpeg",
             status: "pending",
+            metadata: { source: "roulette" },
           },
         ]);
       } catch {}
@@ -100,12 +102,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const starsAfter = await getStars(supabase, tg_id).catch(() => starsBefore + delta);
     return res.status(200).json({ ok: true, prize, balance: starsAfter, tg_id });
   } catch (e: any) {
-    return res.status(500).json({ ok: false, error: "SPIN_FAILED", details: e?.message || String(e), balance: starsBefore, tg_id });
+    return res.status(500).json({
+      ok: false,
+      error: "SPIN_FAILED",
+      details: e?.message || String(e),
+      balance: starsBefore,
+      tg_id,
+    });
   }
 }
 
 async function getStars(supabase: any, tg_id: number): Promise<number> {
-  const { data, error } = await supabase.from("balances_by_tg").select("stars").eq("tg_id", tg_id).maybeSingle();
+  const { data, error } = await supabase
+    .from("balances_by_tg")
+    .select("stars")
+    .eq("tg_id", tg_id)
+    .maybeSingle();
   if (error) throw error;
   return Number(data?.stars || 0);
 }
