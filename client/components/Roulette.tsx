@@ -1,3 +1,5 @@
+"use client";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, useAnimation } from "framer-motion";
 
@@ -32,7 +34,7 @@ const CHANCES = [
   { key: "Plush Pepe NFT", pct: 0.1 },
 ];
 
-// --- TG helper with browser fallback ---
+/** Универсальный способ получить tg_id (Telegram → URL → localStorage → ручной ввод) */
 function useTg() {
   const [tgId, setTgId] = useState<number | null>(null);
   const [initData, setInitData] = useState<string>("");
@@ -43,27 +45,25 @@ function useTg() {
 
     try { tg?.ready?.(); tg?.expand?.(); } catch {}
 
-    const idFromTg = tg?.initDataUnsafe?.user?.id;
-    const init = tg?.initData || "";
-
+    const fromTg = tg?.initDataUnsafe?.user?.id ? String(tg.initDataUnsafe.user.id) : "";
     const params = new URLSearchParams(w?.location?.search || "");
-    const idFromQuery = params.get("debug_tg_id") || params.get("tg_id");
-    const idFromEnv = (w?.process?.env?.NEXT_PUBLIC_DEBUG_TG_ID as string) || "";
+    const fromQuery = params.get("debug_tg_id") || params.get("tg_id") || "";
+    const fromLS = (() => { try { return localStorage.getItem("debug_tg_id") || ""; } catch { return ""; } })();
+    const fromEnv = (w?.process?.env?.NEXT_PUBLIC_DEBUG_TG_ID as string) || "";
 
-    const finalId =
-      idFromTg ? String(idFromTg) :
-      (idFromQuery && /^\d+$/.test(idFromQuery) ? idFromQuery : "") ||
-      (idFromEnv && /^\d+$/.test(idFromEnv) ? idFromEnv : "");
-
-    if (finalId) setTgId(Number(finalId));
-    setInitData(init || "");
+    const pick = [fromTg, fromQuery, fromLS, fromEnv].find(v => /^\d+$/.test(v || ""));
+    if (pick) {
+      setTgId(Number(pick));
+      try { localStorage.setItem("debug_tg_id", String(pick)); } catch {}
+    }
+    setInitData(tg?.initData || "");
   }, []);
 
-  return { tgId, initData };
+  return { tgId, setTgId, initData };
 }
 
 export default function Roulette() {
-  const { tgId, initData } = useTg();
+  const { tgId, setTgId, initData } = useTg();
 
   const [agreed, setAgreed] = useState(false);
   const [agreeConfirmed, setAgreeConfirmed] = useState(false);
@@ -72,7 +72,7 @@ export default function Roulette() {
   const [result, setResult] = useState<Prize | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // одноразовое согласие
+  // Согласие — один раз
   useEffect(() => {
     try { if (localStorage.getItem("roulette_agreed") === "1") setAgreeConfirmed(true); } catch {}
   }, []);
@@ -80,7 +80,7 @@ export default function Roulette() {
   const controls = useAnimation();
   const trackRef = useRef<HTMLDivElement>(null);
 
-  // баланс
+  // Баланс
   const fetchBalance = async () => {
     if (!tgId) { setError("Не удалось определить Telegram ID"); return; }
     const r = await fetch(`/api/my-balance?tg_id=${tgId}`);
@@ -88,12 +88,12 @@ export default function Roulette() {
     const src = j?.balance ? j.balance : j;
     setBalance(Number(src?.stars || 0));
   };
-  useEffect(() => { fetchBalance(); }, [tgId]);
+  useEffect(() => { if (tgId) fetchBalance(); }, [tgId]);
 
-  // длинная лента карточек
+  // Лента карточек
   const track = useMemo(() => Array(8).fill(0).flatMap(() => PRIZES), []);
 
-  // запуск спина
+  // Спин
   const onSpin = async () => {
     setError(null);
     if (!agreeConfirmed) { setError("Подтвердите ознакомление с соглашением."); return; }
@@ -106,7 +106,7 @@ export default function Roulette() {
       const res = await fetch("/api/roulette-spin", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-init-data": initData || "" },
-        body: JSON.stringify({ tg_id: String(tgId) }), // строкой — чтобы точно не ушёл пустяк
+        body: JSON.stringify({ tg_id: String(tgId) }),
       });
       const json = await res.json();
       if (!res.ok || json?.ok === false) { setError(json?.error || "Ошибка спина"); return; }
@@ -139,6 +139,40 @@ export default function Roulette() {
       <div className="rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 p-4">
         <h2 className="text-lg font-semibold">Рулетка</h2>
         <p className="text-slate-500 text-sm mt-1">Стоимость игры — <b>{COST} ⭐</b>.</p>
+
+        {/* Если tg_id не найден — даём поле ручного ввода, чтобы можно было тестировать в браузере */}
+        {!tgId && (
+          <div className="mt-3 rounded-xl bg-amber-50 ring-1 ring-amber-200 p-3">
+            <div className="text-sm text-amber-800">Telegram ID не найден. Введите ID вручную для теста в браузере:</div>
+            <div className="mt-2 flex gap-2">
+              <input
+                type="tel"
+                inputMode="numeric"
+                placeholder="например, 123456789"
+                className="flex-1 h-10 px-3 rounded-xl ring-1 ring-slate-300"
+                onChange={(e) => {
+                  const v = e.target.value.replace(/\D+/g, "");
+                  if (v) {
+                    const n = Number(v);
+                    if (!Number.isNaN(n)) {
+                      setTgId(n);
+                      try { localStorage.setItem("debug_tg_id", v); } catch {}
+                    }
+                  }
+                }}
+              />
+              <button
+                className="h-10 px-4 rounded-xl bg-blue-600 text-white"
+                onClick={() => { /* просто принудительно дернём сеттер из инпута */ }}
+              >
+                Ок
+              </button>
+            </div>
+            <div className="text-xs text-slate-500 mt-2">
+              В Telegram-мини-приложении это поле не нужно — ID подтянется автоматически.
+            </div>
+          </div>
+        )}
 
         {/* Согласие (один раз) */}
         {!agreeConfirmed && (
@@ -206,24 +240,26 @@ export default function Roulette() {
               <button className="h-11 rounded-xl ring-1 ring-slate-200 bg-white disabled:opacity-60" onClick={fetchBalance} disabled={busy}>
                 Обновить баланс
               </button>
-              <button className="h-11 rounded-xl bg-blue-600 text-white disabled:opacity-60" onClick={onSpin} disabled={busy || !agreeConfirmed}>
+              <button className="h-11 rounded-xl bg-blue-600 text-white disabled:opacity-60" onClick={onSpin} disabled={busy || !agreeConfirmed || !tgId}>
                 Крутить за {COST} ⭐
               </button>
             </div>
           </div>
 
-          {/* Ошибки/результат */}
+          {/* Ошибки/подсказка */}
           {error && (
             <div className="text-sm text-red-600 mt-2">
               {error}
               {error === "Не удалось определить Telegram ID" && (
                 <div className="text-xs text-slate-500 mt-1">
-                  Откройте страницу внутри Telegram-мини-приложения или добавьте в URL параметр <code>?debug_tg_id=123456789</code> для теста в браузере.
+                  Откройте страницу внутри Telegram-мини-приложения или добавьте в URL <code>?debug_tg_id=123456789</code>,
+                  либо введите ID в поле выше — он сохранится в памяти для последующих запусков.
                 </div>
               )}
             </div>
           )}
 
+          {/* Результат */}
           {result && (
             <div className="mt-4 rounded-xl bg-emerald-50 ring-1 ring-emerald-200 p-3">
               {result.kind === "stars" ? (
@@ -243,7 +279,7 @@ export default function Roulette() {
         <PrizeList />
       </div>
 
-      {/* Фуллскрин GIF-оверлей (зелёный хромакей убираем) */}
+      {/* Фуллскрин GIF-оверлей (зелёный фон удаляем) */}
       <div className="fixed inset-0 z-50 hidden items-center justify-center bg-black/30 backdrop-blur-sm pointer-events-none roulette-overlay">
         <ChromaGif />
       </div>
@@ -255,7 +291,7 @@ export default function Roulette() {
   );
 }
 
-// --- рендер GIF с удалением зелёного фона ---
+// ——— GIF с удалением хромакея ———
 function ChromaGif() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
@@ -279,7 +315,7 @@ function ChromaGif() {
         const data = frame.data;
         for (let p = 0; p < data.length; p += 4) {
           const r = data[p], g = data[p+1], b = data[p+2];
-          if (g > 140 && g - r > 40 && g - b > 40) data[p+3] = 0; // убираем зелёный
+          if (g > 140 && g - r > 40 && g - b > 40) data[p+3] = 0;
         }
         ctx.putImageData(frame, 0, 0);
       } catch {}
@@ -292,7 +328,7 @@ function ChromaGif() {
   return <canvas ref={canvasRef} className="w-64 h-64 pointer-events-none" />;
 }
 
-// --- список призов ---
+// ——— Список призов ———
 function PrizeList() {
   const colorForPct = (p: number) =>
     p >= 20 ? "bg-emerald-100 text-emerald-800 ring-emerald-200"
