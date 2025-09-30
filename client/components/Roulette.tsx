@@ -105,10 +105,21 @@ export default function Roulette() {
     try {
       const res = await fetch("/api/roulette-spin", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-init-data": initData || "" },
-        body: JSON.stringify({ tg_id: String(tgId) }),
+        headers: {
+          "Content-Type": "application/json",
+          "x-init-data": initData || "",
+          "x-tg-id": String(tgId || ""),       // 👈 приоритетный источник для API
+        },
+        body: JSON.stringify({ tg_id: String(tgId || "") }),
       });
-      const json = await res.json();
+      const json = await res.json().catch(() => ({} as any));
+
+      // Явная обработка нехватки звёзд + подсказка с тем, что увидел сервер
+      if (res.status === 400 && json?.error === "NOT_ENOUGH_STARS") {
+        setError(`Недостаточно звёзд: сервер видит ${json?.balance ?? "0"} ⭐ на ID ${tgId}.`);
+        await fetchBalance();
+        return;
+      }
       if (!res.ok || json?.ok === false) { setError(json?.error || "Ошибка спина"); return; }
 
       const p = json?.prize;
@@ -138,9 +149,19 @@ export default function Roulette() {
     <section className="mt-6">
       <div className="rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 p-4">
         <h2 className="text-lg font-semibold">Рулетка</h2>
-        <p className="text-slate-500 text-sm mt-1">Стоимость игры — <b>{COST} ⭐</b>.</p>
+        <p className="text-slate-500 text-sm mt-1">
+          Стоимость — <b>{COST} ⭐</b>
+          {tgId && <span className="ml-2 text-xs text-slate-500">• ID: <b>{tgId}</b></span>}
+          {balance !== null && (
+            <span className={`ml-2 text-[11px] px-2 py-[2px] rounded-full ring-1 ${
+              balance >= COST ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-rose-50 text-rose-700 ring-rose-200"
+            }`}>
+              баланс: {balance} ⭐
+            </span>
+          )}
+        </p>
 
-        {/* Если tg_id не найден — даём поле ручного ввода, чтобы можно было тестировать в браузере */}
+        {/* Если tg_id не найден — поле ручного ввода для теста в браузере */}
         {!tgId && (
           <div className="mt-3 rounded-xl bg-amber-50 ring-1 ring-amber-200 p-3">
             <div className="text-sm text-amber-800">Telegram ID не найден. Введите ID вручную для теста в браузере:</div>
@@ -161,12 +182,7 @@ export default function Roulette() {
                   }
                 }}
               />
-              <button
-                className="h-10 px-4 rounded-xl bg-blue-600 text-white"
-                onClick={() => { /* просто принудительно дернём сеттер из инпута */ }}
-              >
-                Ок
-              </button>
+              <button className="h-10 px-4 rounded-xl bg-blue-600 text-white">Ок</button>
             </div>
             <div className="text-xs text-slate-500 mt-2">
               В Telegram-мини-приложении это поле не нужно — ID подтянется автоматически.
@@ -240,7 +256,11 @@ export default function Roulette() {
               <button className="h-11 rounded-xl ring-1 ring-slate-200 bg-white disabled:opacity-60" onClick={fetchBalance} disabled={busy}>
                 Обновить баланс
               </button>
-              <button className="h-11 rounded-xl bg-blue-600 text-white disabled:opacity-60" onClick={onSpin} disabled={busy || !agreeConfirmed || !tgId}>
+              <button
+                className="h-11 rounded-xl bg-blue-600 text-white disabled:opacity-60"
+                onClick={onSpin}
+                disabled={busy || !agreeConfirmed || !tgId || (balance !== null && balance < COST)}
+              >
                 Крутить за {COST} ⭐
               </button>
             </div>
@@ -250,10 +270,15 @@ export default function Roulette() {
           {error && (
             <div className="text-sm text-red-600 mt-2">
               {error}
+              {error.startsWith("Недостаточно звёзд") && (
+                <div className="text-xs text-slate-500 mt-1">
+                  Если у тебя звёзды есть — проверь, что ID совпадает, или введи его вручную выше.
+                </div>
+              )}
               {error === "Не удалось определить Telegram ID" && (
                 <div className="text-xs text-slate-500 mt-1">
-                  Откройте страницу внутри Telegram-мини-приложения или добавьте в URL <code>?debug_tg_id=123456789</code>,
-                  либо введите ID в поле выше — он сохранится в памяти для последующих запусков.
+                  Открой страницу в Telegram-мини-приложении, добавь к URL <code>?debug_tg_id=123456789</code>,
+                  или введи ID в поле — он сохранится для следующих запусков.
                 </div>
               )}
             </div>
