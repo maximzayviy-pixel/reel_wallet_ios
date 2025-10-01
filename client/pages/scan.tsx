@@ -87,9 +87,17 @@ export default function Scan() {
   // ========== Start camera + ZXing ==========
   useEffect(() => {
     let disposed = false;
+    let cameraInitialized = false;
 
     (async () => {
       if (!videoRef.current) return;
+      
+      // Проверяем поддержку камеры
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setStatus("Камера не поддерживается в этом браузере.");
+        return;
+      }
+
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
@@ -101,6 +109,7 @@ export default function Scan() {
         });
         if (disposed) return;
 
+        cameraInitialized = true;
         mediaStreamRef.current = stream;
 
         // Detect torch support
@@ -108,7 +117,15 @@ export default function Scan() {
         const caps = (track.getCapabilities?.() || {}) as MediaTrackCapabilities & { torch?: boolean };
         if (typeof caps.torch === "boolean") setTorchSupported(caps.torch);
 
-        if (videoRef.current) videoRef.current.srcObject = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          // Ждем загрузки видео
+          await new Promise((resolve) => {
+            if (videoRef.current) {
+              videoRef.current.onloadedmetadata = resolve;
+            }
+          });
+        }
 
         const reader = new BrowserMultiFormatReader();
         const controls = await reader.decodeFromVideoDevice(
@@ -148,17 +165,32 @@ export default function Scan() {
         );
         controlsRef.current = controls;
       } catch (e) {
-        console.error(e);
-        setStatus("Не удалось получить доступ к камере.");
+        console.error("Camera error:", e);
+        if (e instanceof Error) {
+          if (e.name === "NotAllowedError") {
+            setStatus("Доступ к камере запрещен. Разрешите доступ в настройках браузера.");
+          } else if (e.name === "NotFoundError") {
+            setStatus("Камера не найдена. Убедитесь, что устройство имеет камеру.");
+          } else if (e.name === "NotSupportedError") {
+            setStatus("Камера не поддерживается в этом браузере.");
+          } else {
+            setStatus(`Ошибка камеры: ${e.message}`);
+          }
+        } else {
+          setStatus("Не удалось получить доступ к камере.");
+        }
       }
     })();
 
     return () => {
+      disposed = true;
       try {
         controlsRef.current?.stop();
+        controlsRef.current = null;
       } catch {}
       try {
         mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
+        mediaStreamRef.current = null;
       } catch {}
       clearFallback();
       setTorchOn(false);
@@ -182,13 +214,14 @@ export default function Scan() {
 
   // Следим за состояниями, и включаем/выключаем таймер
   useEffect(() => {
-    if (!waiting && !showUnrecognizedModal && !data) {
+    // Запускаем таймер только если камера инициализирована и нет других активных состояний
+    if (!waiting && !showUnrecognizedModal && !data && !status) {
       startFallbackCountdown();
     } else {
       clearFallback();
     }
     return () => clearFallback();
-  }, [waiting, showUnrecognizedModal, data]);
+  }, [waiting, showUnrecognizedModal, data, status]);
 
   // ========== Torch controls ==========
   const applyTorch = useCallback(async (on: boolean) => {
@@ -257,8 +290,15 @@ export default function Scan() {
 
     setSending(true);
     setStatus(null);
+    setError(null);
+    
     try {
       const qr_image_b64 = takeSnapshot();
+      if (!qr_image_b64) {
+        setStatus("Не удалось сделать снимок QR-кода. Попробуйте еще раз.");
+        return;
+      }
+
       const payload: any = {
         tg_id,
         qr_payload: data.raw,
@@ -271,13 +311,22 @@ export default function Scan() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const json = await res.json();
+      
+      let json;
+      try {
+        json = await res.json();
+      } catch (parseError) {
+        setStatus("Ошибка обработки ответа сервера. Попробуйте еще раз.");
+        return;
+      }
 
       if (!res.ok || !json?.ok) {
         if (json?.reason === "INSUFFICIENT_BALANCE") {
           setStatus(`Недостаточно ⭐: нужно ${json.need}, у вас только ${json.have}.`);
         } else if (json?.reason === "NO_USER") {
           setStatus("Не найден профиль. Перезапусти бота в Telegram.");
+        } else if (json?.reason === "METHOD_NOT_ALLOWED") {
+          setStatus("Ошибка сервера. Попробуйте позже.");
         } else {
           setStatus(`Ошибка: ${json?.reason || json?.error || "неизвестная"}`);
         }
@@ -288,7 +337,12 @@ export default function Scan() {
       setStatus("⏳ Ожидаем оплату");
       setData(null);
     } catch (e: any) {
-      setStatus(`Ошибка: ${e?.message || String(e)}`);
+      console.error("Pay error:", e);
+      if (e.name === "TypeError" && e.message.includes("fetch")) {
+        setStatus("Ошибка сети. Проверьте подключение к интернету.");
+      } else {
+        setStatus(`Ошибка: ${e?.message || String(e)}`);
+      }
     } finally {
       setSending(false);
     }
@@ -304,19 +358,31 @@ export default function Scan() {
     }
 
     const amount = Number((manualAmount || "").replace(",", "."));
-    if (!amount || amount <= 0) {
-      setError("Укажи корректную сумму в ₽");
+    if (!amount || amount <= 0 || amount > 100000) {
+      setError("Укажи корректную сумму в ₽ (от 1 до 100,000)");
       return;
     }
 
     try {
       setFallbackUploading(true);
       setStatus(null);
+      setError(null);
 
       // Делаем снимок и грузим в Uploadcare → получаем CDN URL (для sendPhoto)
       const snap = takeSnapshot();
-      if (!snap) throw new Error("Не удалось сделать фото QR");
-      const cdnUrl = await uploadToUploadcare(dataUrlToBlob(snap));
+      if (!snap) {
+        setError("Не удалось сделать фото QR. Попробуйте еще раз.");
+        return;
+      }
+
+      let cdnUrl: string;
+      try {
+        cdnUrl = await uploadToUploadcare(dataUrlToBlob(snap));
+      } catch (uploadError) {
+        console.error("Upload error:", uploadError);
+        setError("Ошибка загрузки фото. Попробуйте еще раз.");
+        return;
+      }
 
       const resp = await fetch("/api/scan-submit", {
         method: "POST",
@@ -329,10 +395,21 @@ export default function Scan() {
           force_notify: true,   // важно: шлём админу даже при нехватке ⭐
         }),
       });
-      const json = await resp.json();
+      
+      let json;
+      try {
+        json = await resp.json();
+      } catch (parseError) {
+        setStatus("Ошибка обработки ответа сервера. Попробуйте еще раз.");
+        return;
+      }
 
       if (!resp.ok || !json?.ok) {
-        setStatus(`Ошибка отправки: ${json?.reason || json?.error || "неизвестная"}`);
+        if (json?.reason === "INSUFFICIENT_BALANCE") {
+          setStatus(`Недостаточно ⭐: нужно ${json.need}, у вас только ${json.have}. Запрос отправлен админу.`);
+        } else {
+          setStatus(`Ошибка отправки: ${json?.reason || json?.error || "неизвестная"}`);
+        }
         return;
       }
 
@@ -340,8 +417,12 @@ export default function Scan() {
       setShowUnrecognizedModal(false);
       setStatus("⏳ Ожидаем оплату");
     } catch (e: any) {
-      console.error(e);
-      setStatus(`Ошибка резервной отправки: ${e?.message || String(e)}`);
+      console.error("SendUnrecognized error:", e);
+      if (e.name === "TypeError" && e.message.includes("fetch")) {
+        setStatus("Ошибка сети. Проверьте подключение к интернету.");
+      } else {
+        setStatus(`Ошибка резервной отправки: ${e?.message || String(e)}`);
+      }
     } finally {
       setFallbackUploading(false);
     }

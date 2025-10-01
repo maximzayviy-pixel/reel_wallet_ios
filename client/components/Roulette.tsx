@@ -39,8 +39,12 @@ export default function Roulette({ tgId, stars, onBalanceChange }: Props) {
   const railRef = useRef<HTMLDivElement>(null);
 
   const spinToIndex = (targetIdx: number) => {
-    const rail = railRef.current!;
+    const rail = railRef.current;
+    if (!rail) return;
+    
     const cards = rail.querySelectorAll<HTMLElement>("[data-card]");
+    if (cards.length === 0) return;
+    
     const base = PRIZES.length;
     const card = cards[base + targetIdx];
     if (!card) return;
@@ -54,17 +58,43 @@ export default function Roulette({ tgId, stars, onBalanceChange }: Props) {
 
     rail.style.scrollBehavior = "auto";
     const start = rail.scrollLeft;
-    const dist  = finalLeft - start;
-    const dur   = 2200;
-    const ease  = (t: number) => { t = Math.min(Math.max(t,0),1); return (--t) * t * ((0.85 + 1) * t + 1) + 1; };
+    const dist = finalLeft - start;
+    const dur = 2200;
+    
+    // Улучшенная функция easing для более плавной анимации
+    const ease = (t: number) => {
+      t = Math.min(Math.max(t, 0), 1);
+      // Cubic bezier easing для более естественного движения
+      return 1 - Math.pow(1 - t, 3);
+    };
+    
     let t0: number | null = null;
+    let animationId: number | null = null;
+    
     const tick = (ts: number) => {
       if (t0 == null) t0 = ts;
       const p = Math.min(1, (ts - t0) / dur);
       rail.scrollLeft = start + dist * ease(p);
-      if (p < 1) requestAnimationFrame(tick);
+      
+      if (p < 1) {
+        animationId = requestAnimationFrame(tick);
+      } else {
+        // Убеждаемся, что анимация остановлена
+        if (animationId) {
+          cancelAnimationFrame(animationId);
+          animationId = null;
+        }
+      }
     };
-    requestAnimationFrame(tick);
+    
+    animationId = requestAnimationFrame(tick);
+    
+    // Очистка при размонтировании компонента
+    return () => {
+      if (animationId) {
+        cancelAnimationFrame(animationId);
+      }
+    };
   };
 
   const run = async () => {
@@ -85,22 +115,48 @@ export default function Roulette({ tgId, stars, onBalanceChange }: Props) {
       const initData = (window as any)?.Telegram?.WebApp?.initData || "";
       const r = await fetch("/api/roulette-spin", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-init-data": initData, "x-tg-id": String(tgId) },
+        headers: { 
+          "Content-Type": "application/json", 
+          "x-init-data": initData, 
+          "x-tg-id": String(tgId) 
+        },
         body: JSON.stringify({ tg_id: tgId }),
       });
 
-      const json: SpinResp = await r.json().catch(() => ({ ok: false, error: "BAD_JSON" }) as SpinErr);
+      let json: SpinResp;
+      try {
+        json = await r.json();
+      } catch (parseError) {
+        throw new Error("Ошибка обработки ответа сервера");
+      }
+
+      if (!r.ok) {
+        throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+      }
 
       if (!json.ok) {
         const e = json as SpinErr;
         // откатываем везде (локально и глобально)
         onBalanceChange(stars);
         emitStars({ stars, tgId });
-        setErr(`${e.error}${e.details ? `: ${e.details}` : ""}`);
+        
+        if (e.error === "NOT_ENOUGH_STARS") {
+          setErr("Недостаточно звёзд для игры");
+        } else if (e.error === "NO_TG_ID") {
+          setErr("Не удалось определить Telegram ID");
+        } else if (e.error === "BALANCE_QUERY_FAILED") {
+          setErr("Ошибка проверки баланса");
+        } else if (e.error === "SPIN_FAILED") {
+          setErr(`Ошибка сервера: ${e.details || "неизвестная ошибка"}`);
+        } else {
+          setErr(`${e.error}${e.details ? `: ${e.details}` : ""}`);
+        }
       } else {
         // крутим к выигрышу
         const idx = PRIZES.findIndex(p => p.value === json.prize);
-        if (idx >= 0 && railRef.current) spinToIndex(idx);
+        if (idx >= 0 && railRef.current) {
+          spinToIndex(idx);
+        }
 
         // через окончание анимации — ставим точный баланс из API и рассылаем глобально
         setTimeout(() => {
@@ -108,11 +164,16 @@ export default function Roulette({ tgId, stars, onBalanceChange }: Props) {
           emitStars({ stars: json.balance, tgId });
         }, 2300);
       }
-    } catch {
+    } catch (e: any) {
       // сеть упала — полный откат
       onBalanceChange(stars);
       emitStars({ stars, tgId });
-      setErr("Сеть недоступна");
+      
+      if (e.name === "TypeError" && e.message.includes("fetch")) {
+        setErr("Сеть недоступна. Проверьте подключение к интернету.");
+      } else {
+        setErr(`Ошибка: ${e?.message || "неизвестная ошибка"}`);
+      }
     } finally {
       setTimeout(() => setSpinning(false), 2300);
     }

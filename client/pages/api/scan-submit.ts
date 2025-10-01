@@ -151,7 +151,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "";
   if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
     console.error("no_supabase_env");
-    return res.status(200).json({ ok: true, warn: "no_supabase_env" });
+    return res.status(500).json({ ok: false, error: "SERVER_CONFIG_ERROR" });
   }
 
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
@@ -166,60 +166,124 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     force_notify?: boolean;
   };
 
+  // Валидация входных данных
   if (!tg_id || !qr_payload || !amount_rub) {
     return res
       .status(400)
-      .json({ ok: false, error: "tg_id, qr_payload, amount_rub are required" });
+      .json({ ok: false, error: "MISSING_REQUIRED_FIELDS", reason: "tg_id, qr_payload, amount_rub are required" });
+  }
+
+  // Валидация tg_id
+  const tgIdNum = Number(tg_id);
+  if (isNaN(tgIdNum) || tgIdNum <= 0) {
+    return res
+      .status(400)
+      .json({ ok: false, error: "INVALID_TG_ID", reason: "tg_id must be a positive number" });
+  }
+
+  // Валидация amount_rub
+  if (amount_rub <= 0 || amount_rub > 100000) {
+    return res
+      .status(400)
+      .json({ ok: false, error: "INVALID_AMOUNT", reason: "amount_rub must be between 1 and 100000" });
+  }
+
+  // Валидация qr_payload
+  if (typeof qr_payload !== "string" || qr_payload.length > 10000) {
+    return res
+      .status(400)
+      .json({ ok: false, error: "INVALID_QR_PAYLOAD", reason: "qr_payload must be a string with max 10000 characters" });
   }
 
   // 1) user
-  const { data: userRow, error: userErr } = await supabase
-    .from("users")
-    .select("id")
-    .eq("tg_id", tg_id)
-    .maybeSingle();
-  if (userErr) {
-    console.error("user lookup error", userErr);
-    return res.status(500).json({ ok: false, error: userErr.message });
-  }
-  if (!userRow) {
-    console.error("402 NO_USER", { tgId: tg_id });
-    return res.status(402).json({ ok: false, reason: "NO_USER" });
+  let userRow;
+  try {
+    const { data, error: userErr } = await supabase
+      .from("users")
+      .select("id")
+      .eq("tg_id", tgIdNum)
+      .maybeSingle();
+    
+    if (userErr) {
+      console.error("user lookup error", userErr);
+      return res.status(500).json({ ok: false, error: "DATABASE_ERROR", reason: userErr.message });
+    }
+    
+    if (!data) {
+      console.error("NO_USER", { tgId: tgIdNum });
+      return res.status(402).json({ ok: false, reason: "NO_USER" });
+    }
+    
+    userRow = data;
+  } catch (e: any) {
+    console.error("User lookup failed:", e);
+    return res.status(500).json({ ok: false, error: "DATABASE_ERROR", reason: e?.message || "Unknown error" });
   }
 
   // 2) balance
   let warnInsufficient = false;
+  let currentStars = 0;
   try {
     const { data: balRow, error: balErr } = await supabase
       .from("balances_by_tg")
       .select("stars")
-      .eq("tg_id", tg_id)
+      .eq("tg_id", tgIdNum)
       .maybeSingle();
-    if (balErr) console.error("balance lookup error", balErr);
-    if (!balRow) return res.status(402).json({ ok: false, reason: "NO_USER" });
+    
+    if (balErr) {
+      console.error("balance lookup error", balErr);
+      return res.status(500).json({ ok: false, error: "DATABASE_ERROR", reason: "Failed to check balance" });
+    }
+    
+    if (!balRow) {
+      return res.status(402).json({ ok: false, reason: "NO_USER" });
+    }
 
+    currentStars = Number(balRow.stars) || 0;
     const needStars = Math.round(amount_rub * 2);
-    if (balRow.stars < needStars) {
+    
+    if (currentStars < needStars) {
       if (!force_notify) {
         return res
           .status(402)
-          .json({ ok: false, reason: "INSUFFICIENT_BALANCE", need: needStars, have: balRow.stars });
+          .json({ ok: false, reason: "INSUFFICIENT_BALANCE", need: needStars, have: currentStars });
       }
       warnInsufficient = true;
     }
-  } catch (e) {
+  } catch (e: any) {
     console.error("Balance check failed", e);
+    return res.status(500).json({ ok: false, error: "DATABASE_ERROR", reason: "Failed to check balance" });
   }
 
   // 3) insert request
-  const { data: ins, error: insErr } = await supabase
-    .from("payment_requests")
-    .insert([{ tg_id, user_id: userRow.id, qr_payload, amount_rub, status: "pending" }])
-    .select()
-    .single();
-  if (insErr) {
-    console.error("insert_failed", insErr);
-    return res.status(500).json({ ok: false, error: insErr.message });
+  let requestId;
+  try {
+    const { data: ins, error: insErr } = await supabase
+      .from("payment_requests")
+      .insert([{ 
+        tg_id: tgIdNum, 
+        user_id: userRow.id, 
+        qr_payload, 
+        amount_rub, 
+        status: "pending",
+        qr_image_url: qr_image_b64 
+      }])
+      .select()
+      .single();
+    
+    if (insErr) {
+      console.error("insert_failed", insErr);
+      return res.status(500).json({ ok: false, error: "DATABASE_ERROR", reason: insErr.message });
+    }
+    
+    if (!ins?.id) {
+      return res.status(500).json({ ok: false, error: "DATABASE_ERROR", reason: "Failed to create payment request" });
+    }
+    
+    requestId = ins.id;
+  } catch (e: any) {
+    console.error("Insert request failed:", e);
+    return res.status(500).json({ ok: false, error: "DATABASE_ERROR", reason: e?.message || "Unknown error" });
   }
 
   // 4) notify admin
@@ -229,47 +293,52 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   let telegram_debug: any = null;
 
   if (TG_BOT_TOKEN && ADMIN_TG_ID) {
-    const sbpUrl = pickSbpUrlFromPayload(qr_payload);
-    const urlLine = sbpUrl
-      ? `\n<a href="${sbpUrl}">Оплатить в банке</a>`
-      : "\nQR не содержит функциональной ссылки СБП";
+    try {
+      const sbpUrl = pickSbpUrlFromPayload(qr_payload);
+      const urlLine = sbpUrl
+        ? `\n<a href="${sbpUrl}">Оплатить в банке</a>`
+        : "\nQR не содержит функциональной ссылки СБП";
 
-    const escapedPayload = qr_payload ? htmlEscape(qr_payload) : "";
-    const needStars = Math.round(amount_rub * 2);
+      const escapedPayload = qr_payload ? htmlEscape(qr_payload) : "";
+      const needStars = Math.round(amount_rub * 2);
 
-    const caption =
-      `<b>#${ins.id}</b>\n` +
-      `Запрос оплаты от <code>${tg_id}</code>\n` +
-      `Сумма: <b>${amount_rub} ₽</b> (${needStars} ⭐)` +
-      (warnInsufficient ? `\n⚠️ Недостаточно ⭐ у пользователя` : "") +
-      urlLine +
-      (escapedPayload ? `\n\n<code>${escapedPayload.slice(0, 2000)}</code>` : "");
+      const caption =
+        `<b>#${requestId}</b>\n` +
+        `Запрос оплаты от <code>${tgIdNum}</code>\n` +
+        `Сумма: <b>${amount_rub} ₽</b> (${needStars} ⭐)` +
+        (warnInsufficient ? `\n⚠️ Недостаточно ⭐ у пользователя (${currentStars}/${needStars})` : "") +
+        urlLine +
+        (escapedPayload ? `\n\n<code>${escapedPayload.slice(0, 2000)}</code>` : "");
 
-    // если caption урезался для фото — длинный payload отправим отдельно реплаем
-    const payloadLong =
-      escapedPayload && escapedPayload.length > 0
-        ? `<b>Полный payload:</b>\n<code>${escapedPayload.slice(0, 3500)}</code>`
-        : undefined;
+      // если caption урезался для фото — длинный payload отправим отдельно реплаем
+      const payloadLong =
+        escapedPayload && escapedPayload.length > 0
+          ? `<b>Полный payload:</b>\n<code>${escapedPayload.slice(0, 3500)}</code>`
+          : undefined;
 
-    const photoUrl = await normalizePhotoUrl(qr_image_b64);
+      const photoUrl = await normalizePhotoUrl(qr_image_b64);
 
-    const resTg = await notifyAdmin({
-      botToken: TG_BOT_TOKEN,
-      chatId: ADMIN_TG_ID,
-      caption,
-      photoUrl,
-      payloadLongText: payloadLong,
-    });
+      const resTg = await notifyAdmin({
+        botToken: TG_BOT_TOKEN,
+        chatId: ADMIN_TG_ID,
+        caption,
+        photoUrl,
+        payloadLongText: payloadLong,
+      });
 
-    adminNotified = resTg.ok;
-    telegram_debug = resTg.debug;
+      adminNotified = resTg.ok;
+      telegram_debug = resTg.debug;
+    } catch (e: any) {
+      console.error("Admin notification failed:", e);
+      telegram_debug = { ok: false, error: e?.message || "Unknown error" };
+    }
   } else {
     telegram_debug = { ok: false, description: "No TG_BOT_TOKEN or ADMIN_TG_ID in env" };
   }
 
   return res.status(200).json({
     ok: true,
-    id: ins.id,
+    id: requestId,
     admin_notified: adminNotified,
     telegram_debug,
   });

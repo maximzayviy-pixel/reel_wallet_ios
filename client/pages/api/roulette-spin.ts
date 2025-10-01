@@ -48,45 +48,110 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const tg_id = readTgId(req);
   if (!tg_id || Number.isNaN(tg_id)) return res.status(400).json({ ok: false, error: "NO_TG_ID" });
 
-  const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!, {
+  const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+    console.error("Missing Supabase configuration");
+    return res.status(500).json({ ok: false, error: "SERVER_CONFIG_ERROR" });
+  }
+
+  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
     auth: { persistSession: false },
   }) as any;
 
   // 1) читаем текущие звёзды из твоей вьюхи (только чтобы проверить «хватает ли»)
-  const starsBefore = await getStarsSafe(supabase, tg_id);
-  if (!Number.isFinite(starsBefore)) return res.status(500).json({ ok: false, error: "BALANCE_QUERY_FAILED", tg_id });
-  if (starsBefore < COST) return res.status(400).json({ ok: false, error: "NOT_ENOUGH_STARS", balance: starsBefore, tg_id });
+  let starsBefore: number;
+  try {
+    starsBefore = await getStarsSafe(supabase, tg_id);
+    if (!Number.isFinite(starsBefore)) {
+      return res.status(500).json({ ok: false, error: "BALANCE_QUERY_FAILED", tg_id });
+    }
+    if (starsBefore < COST) {
+      return res.status(400).json({ ok: false, error: "NOT_ENOUGH_STARS", balance: starsBefore, tg_id });
+    }
+  } catch (e: any) {
+    console.error("Balance check failed:", e);
+    return res.status(500).json({ ok: false, error: "BALANCE_QUERY_FAILED", tg_id });
+  }
 
   try {
     // 2) user_id
-    let { data: userRow, error: userErr } = await supabase.from("users").select("id").eq("tg_id", tg_id).maybeSingle();
-    if (userErr) throw new Error(userErr.message);
-    if (!userRow?.id) {
-      const { data: newUser, error: insErr } = await supabase.from("users").insert([{ tg_id }]).select("id").maybeSingle();
-      if (insErr || !newUser?.id) {
-        return res.status(400).json({ ok: false, error: "USER_CREATE_FAILED", details: insErr?.message || "no id returned", balance: starsBefore, tg_id });
+    let userRow;
+    try {
+      let { data, error: userErr } = await supabase.from("users").select("id").eq("tg_id", tg_id).maybeSingle();
+      if (userErr) throw new Error(userErr.message);
+      
+      if (!data?.id) {
+        const { data: newUser, error: insErr } = await supabase.from("users").insert([{ tg_id }]).select("id").maybeSingle();
+        if (insErr || !newUser?.id) {
+          return res.status(400).json({ 
+            ok: false, 
+            error: "USER_CREATE_FAILED", 
+            details: insErr?.message || "no id returned", 
+            balance: starsBefore, 
+            tg_id 
+          });
+        }
+        userRow = newUser;
+      } else {
+        userRow = data;
       }
-      userRow = newUser;
+    } catch (e: any) {
+      console.error("User lookup/create failed:", e);
+      return res.status(500).json({ ok: false, error: "USER_ERROR", details: e?.message || "Unknown error", balance: starsBefore, tg_id });
     }
 
     // 3) розыгрыш
     const prize = pickPrize();
-    const win   = typeof prize === "number" ? prize : 0;
+    const win = typeof prize === "number" ? prize : 0;
 
     // 4) две проводки в ledger: ставка и выигрыш
-    const rows: any[] = [
-      { user_id: userRow.id, tg_id, type: "stars_spend_roulette",        amount_rub: 0, amount: -COST, delta: -COST, status: "done", metadata: { source: "roulette", kind: "bet",  cost: COST } },
-      { user_id: userRow.id, tg_id, type: typeof prize === "number" ? "stars_win_roulette" : "stars_win_roulette_nft",
-        amount_rub: 0, amount: win, delta: win, status: "done", metadata: { source: "roulette", kind: "win", prize } },
-    ];
-    const { error: insErr } = await supabase.from("ledger").insert(rows);
-    if (insErr) throw new Error(insErr.message);
+    try {
+      const rows: any[] = [
+        { 
+          user_id: userRow.id, 
+          tg_id, 
+          type: "stars_spend_roulette", 
+          amount_rub: 0, 
+          amount: -COST, 
+          delta: -COST, 
+          status: "done", 
+          metadata: { source: "roulette", kind: "bet", cost: COST } 
+        },
+        { 
+          user_id: userRow.id, 
+          tg_id, 
+          type: typeof prize === "number" ? "stars_win_roulette" : "stars_win_roulette_nft",
+          amount_rub: 0, 
+          amount: win, 
+          delta: win, 
+          status: "done", 
+          metadata: { source: "roulette", kind: "win", prize } 
+        },
+      ];
+      
+      const { error: insErr } = await supabase.from("ledger").insert(rows);
+      if (insErr) throw new Error(insErr.message);
+    } catch (e: any) {
+      console.error("Ledger insert failed:", e);
+      return res.status(500).json({ ok: false, error: "LEDGER_ERROR", details: e?.message || "Unknown error", balance: starsBefore, tg_id });
+    }
 
     // 5) опционально фиксируем NFT (не ломаем спин, если таблицы/политик нет)
     if (prize === "PLUSH_PEPE_NFT") {
       try {
-        await supabase.from("gifts_claims").insert([{ tg_id, gift_code: "PLUSH_PEPE_NFT", title: "Plush Pepe NFT", image_url: "https://i.imgur.com/BmoA5Ui.jpeg", status: "pending", metadata: { source: "roulette" } }]);
-      } catch (e: any) { console.warn("gifts_claims insert skipped:", e?.message || e); }
+        await supabase.from("gifts_claims").insert([{ 
+          tg_id, 
+          gift_code: "PLUSH_PEPE_NFT", 
+          title: "Plush Pepe NFT", 
+          image_url: "https://i.imgur.com/BmoA5Ui.jpeg", 
+          status: "pending", 
+          metadata: { source: "roulette" } 
+        }]);
+      } catch (e: any) { 
+        console.warn("gifts_claims insert skipped:", e?.message || e); 
+      }
     }
 
     // 6) ВОЗВРАЩАЕМ ВЫЧИСЛЕННЫЙ БАЛАНС (а не то, что успела вернуть вьюха)
