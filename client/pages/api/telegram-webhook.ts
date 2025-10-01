@@ -235,6 +235,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           // гарантированное списание через ledger (минусовые ⭐)
           try {
             console.log('Debiting stars:', { needStars, userId: userData.id, tgId: pr.tg_id });
+            console.log('About to insert into ledger...');
             
             const { error: ledgerError } = await supabase.from('ledger').insert([
               {
@@ -261,6 +262,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             }
             
             console.log('Stars debited successfully');
+            console.log('Proceeding to balance update...');
             
             // Обновляем баланс пользователя
             try {
