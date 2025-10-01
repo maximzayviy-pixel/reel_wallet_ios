@@ -210,10 +210,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             
             // Обновляем баланс пользователя
             try {
-              await supabase.rpc('update_user_balance_by_tg_id', { p_tg_id: pr.tg_id });
-              console.log('Balance updated for user:', pr.tg_id);
+              console.log('Calling update_user_balance_by_tg_id for tg_id:', pr.tg_id);
+              const { data: balanceResult, error: balanceError } = await supabase.rpc('update_user_balance_by_tg_id', { p_tg_id: pr.tg_id });
+              console.log('Balance update result:', { data: balanceResult, error: balanceError });
+              
+              if (balanceError) {
+                console.error('Balance update failed:', balanceError);
+                // Попробуем альтернативный способ - прямое обновление
+                console.log('Trying alternative balance update...');
+                await supabase.rpc('refresh_all_balances');
+              } else {
+                console.log('Balance updated successfully for user:', pr.tg_id);
+              }
             } catch (balanceError) {
-              console.error('Balance update failed:', balanceError);
+              console.error('Balance update exception:', balanceError);
               // Не прерываем выполнение, так как основная операция выполнена
             }
           } catch (e) {
