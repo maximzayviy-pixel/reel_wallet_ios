@@ -91,14 +91,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // 2) Быстрый HTTP-ответ и выходим из хэндлера
     ok(res);
 
-    if (!m) return;
+    if (!m) {
+      console.log('No match for callback data:', data);
+      return;
+    }
 
     const action = m[1] as 'pay' | 'rej';
     const reqId = m[2]; // строка (UUID или число)
+    
+    console.log('Processing callback:', { action, reqId });
 
     // 3) Основная работа — в фоне
     (async () => {
       try {
+        console.log('Looking up payment request:', reqId);
         const { data: pr, error: prErr } = await supabase
           .from('payment_requests')
           .select('*')
@@ -106,6 +112,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           .maybeSingle();
 
         if (prErr || !pr) {
+          console.log('Payment request not found:', { reqId, error: prErr });
           await runQuickly(
             fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/answerCallbackQuery`, {
               method: 'POST',
@@ -117,7 +124,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           return;
         }
 
+        console.log('Payment request found:', { id: pr.id, status: pr.status, amount: pr.amount_rub });
+
         if (action === 'pay' && pr.status === 'pending') {
+          console.log('Processing payment confirmation...');
           const needStars = Math.round((pr.amount_rub || 0) * 2);
 
           // Получаем user_id для ledger
@@ -152,22 +162,31 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
           // гарантированное списание через ledger (минусовые ⭐)
           try {
-            await supabase.from(LEDGER).insert([
+            console.log('Debiting stars:', { needStars, userId: userData.id, tgId: pr.tg_id });
+            
+            const { error: ledgerError } = await supabase.from('ledger').insert([
               {
                 user_id: userData.id,
-                tg_id: pr.tg_id,
                 type: 'stars_spend_payment',
                 amount_rub: 0,
-                amount: -needStars,
-                delta: -needStars,
+                asset_amount: -needStars,
+                rate_used: 0.5,
                 status: 'done',
                 metadata: { 
                   source: 'payment_confirmation', 
                   payment_request_id: pr.id,
-                  amount_rub: pr.amount_rub
+                  amount_rub: pr.amount_rub,
+                  tg_id: pr.tg_id
                 },
               },
             ]);
+            
+            if (ledgerError) {
+              console.error('Ledger insert error:', ledgerError);
+              throw ledgerError;
+            }
+            
+            console.log('Stars debited successfully');
           } catch (e) {
             console.error('ledger debit failed', e);
             // Откатываем статус запроса
@@ -238,6 +257,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
 
         if (action === 'rej' && pr.status === 'pending') {
+          console.log('Processing payment rejection...');
           await supabase
             .from('payment_requests')
             .update({ status: 'rejected', admin_id: cq.from?.id ?? null })
