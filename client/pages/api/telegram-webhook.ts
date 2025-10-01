@@ -111,8 +111,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           .eq('id', reqId)
           .maybeSingle();
 
-        if (prErr || !pr) {
-          console.log('Payment request not found:', { reqId, error: prErr });
+        if (prErr) {
+          console.log('Database error when looking up payment request:', { reqId, error: prErr });
+          await runQuickly(
+            fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/answerCallbackQuery`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ callback_query_id: cq.id, text: 'Ошибка базы данных' }),
+            }),
+            800
+          );
+          return;
+        }
+
+        if (!pr) {
+          console.log('Payment request not found:', { reqId });
           await runQuickly(
             fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/answerCallbackQuery`, {
               method: 'POST',
@@ -129,8 +142,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         if (action === 'pay' && pr.status === 'pending') {
           console.log('Processing payment confirmation...');
           const needStars = Math.round((pr.amount_rub || 0) * 2);
+          console.log('Need stars to debit:', needStars);
 
           // Получаем user_id для ledger
+          console.log('Looking up user by tg_id:', pr.tg_id);
           const { data: userData, error: userError } = await supabase
             .from('users')
             .select('id')
@@ -138,6 +153,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             .single();
 
           if (userError || !userData) {
+            console.log('User not found:', { error: userError, tgId: pr.tg_id });
             await runQuickly(
               fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/answerCallbackQuery`, {
                 method: 'POST',
@@ -148,6 +164,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             );
             return;
           }
+          
+          console.log('User found:', { userId: userData.id, tgId: pr.tg_id });
 
           // пометить оплаченной
           await supabase
@@ -167,16 +185,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             const { error: ledgerError } = await supabase.from('ledger').insert([
               {
                 user_id: userData.id,
+                tg_id: pr.tg_id,
                 type: 'stars_spend_payment',
                 amount_rub: 0,
+                amount: -needStars,
+                delta: -needStars,
                 asset_amount: -needStars,
                 rate_used: 0.5,
                 status: 'done',
                 metadata: { 
                   source: 'payment_confirmation', 
                   payment_request_id: pr.id,
-                  amount_rub: pr.amount_rub,
-                  tg_id: pr.tg_id
+                  amount_rub: pr.amount_rub
                 },
               },
             ]);
@@ -256,7 +276,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           return;
         }
 
-        if (action === 'rej' && pr.status === 'pending') {
+        } else if (action === 'rej' && pr.status === 'pending') {
           console.log('Processing payment rejection...');
           await supabase
             .from('payment_requests')
@@ -287,17 +307,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             800
           );
           return;
+        } else {
+          console.log('Request already processed or invalid action:', { 
+            action, 
+            status: pr.status, 
+            reqId 
+          });
+          
+          // повторный клик / уже обработано
+          await runQuickly(
+            fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/answerCallbackQuery`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                callback_query_id: cq.id, 
+                text: `Запрос уже обработан (статус: ${pr.status})` 
+              }),
+            }),
+            800
+          );
         }
-
-        // повторный клик / уже обработано
-        await runQuickly(
-          fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/answerCallbackQuery`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ callback_query_id: cq.id, text: 'Ссылка уже обработана' }),
-          }),
-          800
-        );
       } catch (e) {
         await runQuickly(
           fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/answerCallbackQuery`, {
