@@ -38,7 +38,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           username: username || null,
           first_name: first_name || null,
           last_name: last_name || null,
-          role: "user",
+          // НЕ устанавливаем роль - она будет по умолчанию 'user' из схемы
         },
         { onConflict: "tg_id" }
       )
