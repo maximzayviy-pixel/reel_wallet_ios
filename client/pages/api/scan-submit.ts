@@ -79,6 +79,8 @@ async function notifyAdmin({
   // 1) пытаемся sendPhoto, если есть URL
   if (photoUrl) {
     try {
+      console.log('Sending photo with buttons:', { requestId, photoUrl: photoUrl.substring(0, 50) + '...' });
+      
       const resp = await fetch(`${base}/sendPhoto`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -98,6 +100,8 @@ async function notifyAdmin({
         }),
       });
       const j = await resp.json().catch(() => ({}));
+      console.log('Photo send result:', { ok: j?.ok, error: j?.error_code, description: j?.description });
+      
       if (j?.ok) {
         // если caption был урезан — длинный payload добросим вторым сообщением как реплай
         if (payloadLongText && caption.length > CAPTION_MAX) {
@@ -122,12 +126,15 @@ async function notifyAdmin({
         debug: { stage: "sendPhoto", error_code: j?.error_code, description: j?.description },
       };
     } catch (e: any) {
+      console.error('Photo send error:', e);
       return { ok: false, debug: { stage: "sendPhoto", exception: String(e) } };
     }
   }
 
   // 2) фолбэк: sendMessage с ссылкой на фото/qr
   try {
+    console.log('Sending text message with buttons:', { requestId, captionLength: caption.length });
+    
     const resp = await fetch(`${base}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -135,11 +142,22 @@ async function notifyAdmin({
         chat_id: chatId,
         text: caption,
         parse_mode: "HTML",
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: "✅ Оплачено", callback_data: `pay:${requestId}` },
+              { text: "❌ Отказать", callback_data: `rej:${requestId}` },
+            ],
+          ],
+        },
       }),
     });
     const j = await resp.json().catch(() => ({}));
+    console.log('Text message send result:', { ok: j?.ok, error: j?.error_code, description: j?.description });
+    
     return { ok: !!j?.ok, debug: { stage: "sendMessage", ok: j?.ok, error_code: j?.error_code, description: j?.description } };
   } catch (e: any) {
+    console.error('Text message send error:', e);
     return { ok: false, debug: { stage: "sendMessage", exception: String(e) } };
   }
 }
@@ -332,6 +350,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       adminNotified = resTg.ok;
       telegram_debug = resTg.debug;
+      
+      // Отладочная информация
+      console.log('Admin notification result:', {
+        ok: resTg.ok,
+        debug: resTg.debug,
+        requestId,
+        hasPhoto: !!photoUrl,
+        captionLength: caption.length
+      });
     } catch (e: any) {
       console.error("Admin notification failed:", e);
       telegram_debug = { ok: false, error: e?.message || "Unknown error" };

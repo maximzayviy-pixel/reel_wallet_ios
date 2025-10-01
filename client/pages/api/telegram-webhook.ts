@@ -54,6 +54,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const REFRESH_BALANCES_RPC = process.env.RPC_REFRESH_BALANCES || ''; // опционально
 
   const update = (req.body || {}) as TGUpdate;
+  console.log('Webhook received update:', { 
+    hasCallbackQuery: !!update?.callback_query,
+    hasMessage: !!update?.message,
+    callbackData: update?.callback_query?.data,
+    messageText: update?.message?.text?.substring(0, 100)
+  });
+  
   const supabase =
     SUPABASE_URL && SUPABASE_SERVICE_KEY
       ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
@@ -65,6 +72,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (update?.callback_query?.data && supabase) {
     const cq = update.callback_query;
     const data = cq.data || '';
+    console.log('Received callback query:', { data, from: cq.from?.id, messageId: cq.message?.message_id });
+    
     // поддерживаем UUID и числа
     const m = data.match(/^(pay|rej):([A-Za-z0-9-]+)$/);
 
