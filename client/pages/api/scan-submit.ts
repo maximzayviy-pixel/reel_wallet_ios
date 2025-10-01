@@ -61,12 +61,14 @@ async function notifyAdmin({
   caption,
   photoUrl,
   payloadLongText,
+  requestId,
 }: {
   botToken: string;
   chatId: string;
   caption: string;
   photoUrl: string | null;
   payloadLongText?: string; // длинный сырой payload, если надо дослать вторым сообщением
+  requestId: string; // ID запроса для кнопок
 }): Promise<{ ok: boolean; debug: any }> {
   const base = `https://api.telegram.org/bot${botToken}`;
 
@@ -88,8 +90,8 @@ async function notifyAdmin({
           reply_markup: {
             inline_keyboard: [
               [
-                { text: "✅ Оплачено", callback_data: "pay:" }, // сам id прокинем в тексте ниже
-                { text: "❌ Отказать", callback_data: "rej:" },
+                { text: "✅ Оплачено", callback_data: `pay:${requestId}` },
+                { text: "❌ Отказать", callback_data: `rej:${requestId}` },
               ],
             ],
           },
@@ -305,7 +307,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const caption =
         `<b>#${requestId}</b>\n` +
         `Запрос оплаты от <code>${tgIdNum}</code>\n` +
-        `Сумма: <b>${amount_rub} ₽</b> (${needStars} ⭐)` +
+        `Сумма: <b>${amount_rub} ₽</b> (${needStars} ⭐)\n` +
+        `Баланс пользователя: <b>${currentStars} ⭐</b>` +
         (warnInsufficient ? `\n⚠️ Недостаточно ⭐ у пользователя (${currentStars}/${needStars})` : "") +
         urlLine +
         (escapedPayload ? `\n\n<code>${escapedPayload.slice(0, 2000)}</code>` : "");
@@ -324,6 +327,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         caption,
         photoUrl,
         payloadLongText: payloadLong,
+        requestId: requestId,
       });
 
       adminNotified = resTg.ok;

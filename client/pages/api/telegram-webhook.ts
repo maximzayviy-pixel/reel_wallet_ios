@@ -111,6 +111,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         if (action === 'pay' && pr.status === 'pending') {
           const needStars = Math.round((pr.amount_rub || 0) * 2);
 
+          // Получаем user_id для ledger
+          const { data: userData, error: userError } = await supabase
+            .from('users')
+            .select('id')
+            .eq('tg_id', pr.tg_id)
+            .single();
+
+          if (userError || !userData) {
+            await runQuickly(
+              fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/answerCallbackQuery`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ callback_query_id: cq.id, text: 'Пользователь не найден' }),
+              }),
+              800
+            );
+            return;
+          }
+
           // пометить оплаченной
           await supabase
             .from('payment_requests')
@@ -126,17 +145,37 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           try {
             await supabase.from(LEDGER).insert([
               {
+                user_id: userData.id,
                 tg_id: pr.tg_id,
-                type: 'sbp_payment',
-                asset_amount: -needStars,
-                amount_rub: -(pr.amount_rub || 0),
-                rate_used: 0.5,
-                status: 'ok',
-                metadata: { payment_request_id: pr.id },
+                type: 'stars_spend_payment',
+                amount_rub: 0,
+                amount: -needStars,
+                delta: -needStars,
+                status: 'done',
+                metadata: { 
+                  source: 'payment_confirmation', 
+                  payment_request_id: pr.id,
+                  amount_rub: pr.amount_rub
+                },
               },
             ]);
           } catch (e) {
             console.error('ledger debit failed', e);
+            // Откатываем статус запроса
+            await supabase
+              .from('payment_requests')
+              .update({ status: 'pending', admin_id: null, paid_at: null })
+              .eq('id', reqId);
+            
+            await runQuickly(
+              fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/answerCallbackQuery`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ callback_query_id: cq.id, text: 'Ошибка списания баланса' }),
+              }),
+              800
+            );
+            return;
           }
 
           // опц.: рефреш materialized view
