@@ -1,8 +1,12 @@
 import { createClient } from '@supabase/supabase-js';
+import { requireAdmin } from './admin/_guard';
 
 export default async function handler(req: any, res: any) {
   // Only POST requests are allowed
   if (req.method !== 'POST') return res.status(405).end();
+  const admin = await requireAdmin(req, res);
+  if (!admin) return;
+
   const supabase = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
   const { user_id } = req.body || {};
   if (!user_id) return res.status(400).json({ error: 'user_id is required' });

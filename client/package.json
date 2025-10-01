@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "test": "npm run test:build && node --test dist-tests/__tests__/admin-guard.test.js",
+    "test:build": "tsc --project tsconfig.test.json"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.3",
