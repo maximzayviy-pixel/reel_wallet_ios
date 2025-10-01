@@ -231,7 +231,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               status: 'paid',
               paid_amount_rub: pr.amount_rub,
               paid_at: new Date().toISOString(),
-              admin_id: cq.from?.id ?? null,
+              // admin_id требует UUID, но у нас только tg_id - пропускаем
             })
             .eq('id', reqId);
 
@@ -367,7 +367,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           console.log('Processing payment rejection...');
           await supabase
             .from('payment_requests')
-            .update({ status: 'rejected', admin_id: cq.from?.id ?? null })
+            .update({ status: 'rejected' })
             .eq('id', reqId);
 
           if (cq.message?.message_id) {
