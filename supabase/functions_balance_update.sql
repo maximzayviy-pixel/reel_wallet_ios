@@ -6,6 +6,11 @@ DECLARE
     total_ton NUMERIC := 0;
     total_rub NUMERIC := 0;
 BEGIN
+    -- Проверяем, что user_id не null
+    IF p_user_id IS NULL THEN
+        RAISE EXCEPTION 'user_id cannot be null';
+    END IF;
+    
     -- Считаем звёзды из ledger
     SELECT COALESCE(SUM(amount), 0) INTO total_stars
     FROM ledger 
@@ -45,6 +50,11 @@ RETURNS VOID AS $$
 DECLARE
     user_uuid UUID;
 BEGIN
+    -- Проверяем, что tg_id не null
+    IF p_tg_id IS NULL THEN
+        RAISE EXCEPTION 'tg_id cannot be null';
+    END IF;
+    
     -- Получаем user_id по tg_id
     SELECT id INTO user_uuid
     FROM users 
@@ -52,6 +62,8 @@ BEGIN
     
     IF user_uuid IS NOT NULL THEN
         PERFORM update_user_balance(user_uuid);
+    ELSE
+        RAISE WARNING 'User not found for tg_id: %', p_tg_id;
     END IF;
 END;
 $$ LANGUAGE plpgsql;
