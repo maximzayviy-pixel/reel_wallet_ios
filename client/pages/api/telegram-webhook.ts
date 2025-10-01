@@ -283,8 +283,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             800
           );
           return;
-        }
-
         } else if (action === 'rej' && pr.status === 'pending') {
           console.log('Processing payment rejection...');
           await supabase
