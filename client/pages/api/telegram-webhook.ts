@@ -192,6 +192,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
 
         console.log('Payment request found:', { id: pr.id, status: pr.status, amount: pr.amount_rub });
+        console.log('Processing action:', action, 'for request:', pr.id);
 
         if (action === 'pay' && pr.status === 'pending') {
           console.log('Processing payment confirmation...');
@@ -220,9 +221,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           }
           
           console.log('User found:', { userId: userData.id, tgId: pr.tg_id });
+          console.log('About to update payment request status...');
 
           // пометить оплаченной
-          await supabase
+          console.log('Updating payment request status to paid...');
+          const { error: statusError } = await supabase
             .from('payment_requests')
             .update({
               status: 'paid',
@@ -231,6 +234,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               admin_id: cq.from?.id ?? null,
             })
             .eq('id', reqId);
+
+          if (statusError) {
+            console.error('Error updating payment request status:', statusError);
+          } else {
+            console.log('Payment request status updated successfully');
+          }
 
           // гарантированное списание через ledger (минусовые ⭐)
           try {
@@ -445,19 +454,71 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const currency = sp.currency;               // обычно 'XTR'
       const total = Number(sp.total_amount || 0); // для Stars — это кол-во звёзд
       if (fromId && currency === 'XTR' && total > 0) {
+        console.log('Successful payment received:', { fromId, stars: total });
+        
         const stars = total;
         const amountRub = stars / 2;  // курс 2⭐ = 1₽
         const rate = 0.5;
 
-        await supabase.from(LEDGER).insert([{
+        // Получаем user_id
+        const { data: userData, error: userError } = await supabase
+          .from('users')
+          .select('id')
+          .eq('tg_id', fromId)
+          .single();
+
+        if (userError || !userData) {
+          console.error('User not found for topup:', { fromId, error: userError });
+          // Пытаемся создать пользователя
+          const { data: newUser, error: createError } = await supabase
+            .from('users')
+            .insert({ tg_id: fromId, role: 'user' })
+            .select('id')
+            .single();
+          
+          if (createError || !newUser) {
+            console.error('Failed to create user for topup:', createError);
+            return;
+          }
+          userData.id = newUser.id;
+        }
+
+        console.log('Inserting topup into ledger:', { userId: userData.id, stars });
+
+        const { error: ledgerError } = await supabase.from('ledger').insert([{
+          user_id: userData.id,
           tg_id: fromId,
           type: 'stars_topup',
+          amount: stars,
+          delta: stars,
           asset_amount: stars,
           amount_rub: amountRub,
           rate_used: rate,
-          status: 'ok',
+          status: 'done',
           metadata: sp,
         }]);
+
+        if (ledgerError) {
+          console.error('Error inserting topup into ledger:', ledgerError);
+          return;
+        }
+
+        console.log('Topup inserted successfully');
+
+        // Обновляем баланс
+        try {
+          await supabase.rpc('update_user_balance_by_tg_id', { p_tg_id: fromId });
+          console.log('Balance updated after topup');
+        } catch (balanceError) {
+          console.error('Balance update failed after topup:', balanceError);
+          // Fallback на прямое обновление
+          try {
+            await updateBalanceDirectly(supabase, userData.id, fromId);
+            console.log('Balance updated directly after topup');
+          } catch (e) {
+            console.error('Direct balance update also failed:', e);
+          }
+        }
 
         try {
           await supabase.from('webhook_logs').insert([{
