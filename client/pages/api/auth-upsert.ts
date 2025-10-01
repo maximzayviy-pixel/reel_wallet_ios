@@ -29,13 +29,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    // Используем RPC функцию для создания/обновления пользователя
-    const { data, error } = await supabase.rpc('create_or_update_user', {
-      p_tg_id: Number(tg_id),
-      p_username: username || null,
-      p_first_name: first_name || null,
-      p_last_name: last_name || null
-    });
+    // Используем прямое обращение к таблице вместо RPC функции
+    const { data, error } = await supabase
+      .from("users")
+      .upsert(
+        {
+          tg_id: Number(tg_id),
+          username: username || null,
+          first_name: first_name || null,
+          last_name: last_name || null,
+          role: "user",
+        },
+        { onConflict: "tg_id" }
+      )
+      .select();
 
     console.log("auth-upsert result", { data, error });
 
