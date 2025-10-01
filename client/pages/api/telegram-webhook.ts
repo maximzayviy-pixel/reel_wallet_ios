@@ -207,6 +207,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             }
             
             console.log('Stars debited successfully');
+            
+            // Обновляем баланс пользователя
+            try {
+              await supabase.rpc('update_user_balance_by_tg_id', { p_tg_id: pr.tg_id });
+              console.log('Balance updated for user:', pr.tg_id);
+            } catch (balanceError) {
+              console.error('Balance update failed:', balanceError);
+              // Не прерываем выполнение, так как основная операция выполнена
+            }
           } catch (e) {
             console.error('ledger debit failed', e);
             // Откатываем статус запроса

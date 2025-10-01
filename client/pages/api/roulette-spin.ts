@@ -133,6 +133,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       
       const { error: insErr } = await supabase.from("ledger").insert(rows);
       if (insErr) throw new Error(insErr.message);
+      
+      // Обновляем баланс пользователя
+      try {
+        await supabase.rpc('update_user_balance_by_tg_id', { p_tg_id: tg_id });
+        console.log('Balance updated for user:', tg_id);
+      } catch (balanceError) {
+        console.error('Balance update failed:', balanceError);
+        // Не прерываем выполнение, так как основная операция выполнена
+      }
     } catch (e: any) {
       console.error("Ledger insert failed:", e);
       return res.status(500).json({ ok: false, error: "LEDGER_ERROR", details: e?.message || "Unknown error", balance: starsBefore, tg_id });
