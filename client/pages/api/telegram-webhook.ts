@@ -2,6 +2,60 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { createClient } from '@supabase/supabase-js';
 
+// Функция для прямого обновления баланса
+async function updateBalanceDirectly(supabase: any, userId: string, tgId: number) {
+  console.log('Updating balance directly for user:', { userId, tgId });
+  
+  try {
+    // Считаем баланс из ledger
+    const { data: ledgerData, error: ledgerError } = await supabase
+      .from('ledger')
+      .select('amount, amount_rub, type')
+      .eq('user_id', userId)
+      .eq('status', 'done');
+    
+    if (ledgerError) {
+      console.error('Error fetching ledger data:', ledgerError);
+      return;
+    }
+    
+    let totalStars = 0;
+    let totalTon = 0;
+    let totalRub = 0;
+    
+    ledgerData?.forEach((record: any) => {
+      if (record.type?.includes('stars')) {
+        totalStars += Number(record.amount || 0);
+      } else if (record.type?.includes('ton')) {
+        totalTon += Number(record.amount || 0);
+      }
+      totalRub += Number(record.amount_rub || 0);
+    });
+    
+    console.log('Calculated balance:', { totalStars, totalTon, totalRub });
+    
+    // Обновляем баланс
+    const { error: balanceError } = await supabase
+      .from('balances')
+      .upsert({
+        user_id: userId,
+        stars: totalStars,
+        ton: totalTon,
+        available_rub: totalRub,
+        bonus_rub: 0,
+        hold_rub: 0
+      }, { onConflict: 'user_id' });
+    
+    if (balanceError) {
+      console.error('Error updating balance:', balanceError);
+    } else {
+      console.log('Balance updated directly:', { totalStars, totalTon, totalRub });
+    }
+  } catch (e) {
+    console.error('Direct balance update error:', e);
+  }
+}
+
 export const config = { api: { bodyParser: true } };
 
 type TGUpdate = {
@@ -211,20 +265,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             // Обновляем баланс пользователя
             try {
               console.log('Calling update_user_balance_by_tg_id for tg_id:', pr.tg_id);
-              const { data: balanceResult, error: balanceError } = await supabase.rpc('update_user_balance_by_tg_id', { p_tg_id: pr.tg_id });
-              console.log('Balance update result:', { data: balanceResult, error: balanceError });
+              const { error: balanceError } = await supabase.rpc('update_user_balance_by_tg_id', { p_tg_id: pr.tg_id });
               
               if (balanceError) {
                 console.error('Balance update failed:', balanceError);
-                // Попробуем альтернативный способ - прямое обновление
-                console.log('Trying alternative balance update...');
-                await supabase.rpc('refresh_all_balances');
+                // Попробуем альтернативный способ - прямое обновление баланса
+                console.log('Trying direct balance update...');
+                await updateBalanceDirectly(supabase, userData.id, pr.tg_id);
               } else {
                 console.log('Balance updated successfully for user:', pr.tg_id);
               }
             } catch (balanceError) {
               console.error('Balance update exception:', balanceError);
-              // Не прерываем выполнение, так как основная операция выполнена
+              // Попробуем прямое обновление как fallback
+              try {
+                console.log('Trying direct balance update as fallback...');
+                await updateBalanceDirectly(supabase, userData.id, pr.tg_id);
+              } catch (e) {
+                console.error('Direct balance update also failed:', e);
+              }
             }
           } catch (e) {
             console.error('ledger debit failed', e);
