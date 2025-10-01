@@ -99,18 +99,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const { error: insErr } = await supabase.from(LEDGER).insert([
       // списание у отправителя
       {
+        user_id: fromUser.id,
         tg_id: from_tg_id,
         type: "p2p_send",
-        asset_amount: -amount_stars, // -⭐
+        amount: -amount_stars, // -⭐
         amount_rub: -rub, // минус эквивалент
+        delta: -amount_stars,
+        asset_amount: -amount_stars,
         ...payloadCommon,
       },
       // зачисление у получателя
       {
+        user_id: toUser.id,
         tg_id: to_tg_id,
         type: "p2p_recv",
-        asset_amount: amount_stars, // +⭐
+        amount: amount_stars, // +⭐
         amount_rub: rub,
+        delta: amount_stars,
+        asset_amount: amount_stars,
         ...payloadCommon,
       },
     ]);
@@ -118,6 +124,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (insErr) {
       console.error("ledger insert failed:", insErr);
       return bad(res, 500, "LEDGER_WRITE_FAILED");
+    }
+
+    // Обновляем баланс обоих пользователей
+    try {
+      await supabase.rpc('update_user_balance_by_tg_id', { p_tg_id: from_tg_id });
+      await supabase.rpc('update_user_balance_by_tg_id', { p_tg_id: to_tg_id });
+      console.log('Balances updated for transfer:', { from_tg_id, to_tg_id });
+    } catch (balanceError) {
+      console.error('Balance update failed:', balanceError);
+      // Не прерываем выполнение, так как основная операция выполнена
     }
 
     // опционально обновить материализованное представление
