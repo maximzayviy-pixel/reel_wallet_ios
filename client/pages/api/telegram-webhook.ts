@@ -246,27 +246,32 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             console.log('Debiting stars:', { needStars, userId: userData.id, tgId: pr.tg_id });
             console.log('About to insert into ledger...');
             
-            const { error: ledgerError } = await supabase.from('ledger').insert([
-              {
-                user_id: userData.id,
-                tg_id: pr.tg_id,
-                type: 'stars_spend_payment',
-                amount_rub: 0,
-                amount: -needStars,
-                delta: -needStars,
-                asset_amount: -needStars,
-                rate_used: 0.5,
-                status: 'done',
-                metadata: { 
-                  source: 'payment_confirmation', 
-                  payment_request_id: pr.id,
-                  amount_rub: pr.amount_rub
-                },
+            const ledgerEntry = {
+              user_id: userData.id,
+              tg_id: pr.tg_id,
+              type: 'stars_spend_payment',
+              amount_rub: 0,
+              amount: -needStars,
+              delta: -needStars,
+              asset_amount: -needStars,
+              rate_used: 0.5,
+              status: 'done',
+              metadata: { 
+                source: 'payment_confirmation', 
+                payment_request_id: pr.id,
+                amount_rub: pr.amount_rub
               },
-            ]);
+            };
+            
+            console.log('Ledger entry to insert:', JSON.stringify(ledgerEntry));
+            
+            const { data: ledgerData, error: ledgerError } = await supabase.from('ledger').insert([ledgerEntry]);
+            
+            console.log('Ledger insert result:', { data: ledgerData, error: ledgerError });
             
             if (ledgerError) {
               console.error('Ledger insert error:', ledgerError);
+              console.error('Ledger insert error details:', JSON.stringify(ledgerError));
               throw ledgerError;
             }
             
@@ -298,11 +303,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             }
           } catch (e) {
             console.error('ledger debit failed', e);
+            console.error('ledger debit failed type:', typeof e);
+            console.error('ledger debit failed stringified:', JSON.stringify(e));
+            console.error('ledger debit failed stack:', e instanceof Error ? e.stack : 'no stack');
+            
             // Откатываем статус запроса
-            await supabase
+            const { error: rollbackError } = await supabase
               .from('payment_requests')
-              .update({ status: 'pending', admin_id: null, paid_at: null })
+              .update({ status: 'pending', paid_at: null })
               .eq('id', reqId);
+            
+            if (rollbackError) {
+              console.error('Rollback error:', rollbackError);
+            } else {
+              console.log('Payment request status rolled back');
+            }
             
             await runQuickly(
               fetch(`https://api.telegram.org/bot${TG_BOT_TOKEN}/answerCallbackQuery`, {
